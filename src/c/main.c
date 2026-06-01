@@ -13,9 +13,15 @@ extern uint32_t MESSAGE_KEY_SHOW_DATE;
 #define PERSIST_KEY_EMPTY     3
 #define PERSIST_KEY_SHOW_DATE 4
 
+#ifdef PBL_BW
+#define DEFAULT_BG_ARGB     0xFF  // white
+#define DEFAULT_FILLED_ARGB 0xC0  // black
+#define DEFAULT_EMPTY_ARGB  0xEA  // light gray (dithered on B&W display)
+#else
 #define DEFAULT_BG_ARGB     0xFF
 #define DEFAULT_FILLED_ARGB 0xD5
 #define DEFAULT_EMPTY_ARGB  0xEA
+#endif
 
 static Window *s_window;
 static Layer  *s_canvas_layer;
@@ -90,9 +96,16 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         graphics_fill_rect(ctx, GRect(bm + i * seg_sp, bar_y, seg_w, bar_h), 0, GCornerNone);
     }
 
+    // 10-minute tick dashes below the bar (including 0 and 60)
+    graphics_context_set_fill_color(ctx, empty);
+    for (int i = 0; i <= 60; i += 10) {
+        int pos = (i == 60) ? 59 : i;
+        graphics_fill_rect(ctx, GRect(bm + pos * seg_sp, bar_y + bar_h + 1, seg_w, 2), 0, GCornerNone);
+    }
+
     // ── bottom row: date left, AM/PM right — spaced below bar by bar_gap ─────
     int bar_bottom = bar_y + bar_h;
-    int text_y     = bar_bottom + bar_gap / 2;
+    int text_y     = bar_bottom + bar_gap / 2 + 2;
 
     GFont info_font = (w >= 180) ? fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD)
                                  : fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);

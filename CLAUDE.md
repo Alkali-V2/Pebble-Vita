@@ -12,10 +12,14 @@ Minimal dot-matrix Pebble watchface inspired by Nooka watches. "The P is silent.
 
 ## Platforms
 
-| Platform | Device |
-|---|---|
-| Basalt | Pebble Time (144×168) |
-| Emery | Pebble Time 2 / Time Steel (200×228) |
+| Platform | Device | Display |
+|---|---|---|
+| Basalt | Pebble Time | 144×168, color |
+| Emery | Pebble Time 2 / Time Steel | 200×228, color |
+| Aplite | Pebble Classic / Pebble Steel | 144×168, B&W |
+| Diorite | Pebble 2 | 144×168, B&W |
+
+B&W platforms use black/white defaults (`PBL_BW` macro). The color picker in settings shows a 3-shade palette (black / gray / white) via `allowGray: true` in Clay config.
 
 ## Project structure
 

@@ -83,9 +83,14 @@ def draw_watchface(hours, minutes, is_pm, date_str, bg, filled, empty):
         sx = bm + i * seg_sp
         d.rectangle([sx, bar_y, sx, bar_y + bar_h - 1], fill=seg_fill)
 
+    for i in range(0, 61, 10):
+        pos = 59 if i == 60 else i
+        sx  = bm + pos * seg_sp
+        d.rectangle([sx, bar_y + bar_h + 1, sx, bar_y + bar_h + 2], fill=empty)
+
     # ── Bottom text row ───────────────────────────────────────────────────────
     bar_bottom = bar_y + bar_h
-    text_y     = bar_bottom + bar_gap // 2
+    text_y     = bar_bottom + bar_gap // 2 + 2
 
     r2, g2, b2 = bg[0]//85, bg[1]//85, bg[2]//85
     text_col   = (0, 0, 0) if r2*30 + g2*59 + b2*11 >= 150 else (255, 255, 255)
