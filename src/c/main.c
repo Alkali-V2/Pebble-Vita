@@ -28,10 +28,21 @@ extern uint32_t MESSAGE_KEY_DATE_STYLE;
 static Window *s_window;
 static Layer  *s_canvas_layer;
 
+// Time state — updated every minute by tick_handler
 static int     s_hours, s_minutes;
 static uint8_t s_is_pm;
+
+// Settings — loaded from persist at init, updated via AppMessage
 static uint8_t s_bg_argb, s_filled_argb, s_empty_argb;
 static uint8_t s_show_date, s_date_style;
+
+// Layout cache — computed once at window_load, never change for a given device
+static GFont s_font;
+static int   s_radius, s_spacing, s_seg_w, s_seg_sp, s_bar_w, s_bar_h, s_font_h;
+static int   s_grid_x, s_grid_y, s_bm, s_bar_y, s_text_y;
+static int   s_dot_r, s_dot_cy;
+static int   s_am_lx, s_am_dot_x, s_am_sz_w;
+static int   s_pm_lx, s_pm_dot_x, s_pm_sz_w;
 
 static uint8_t rgb24_to_argb8(int32_t val) {
     uint8_t r = (val >> 16) & 0xFF;
@@ -48,140 +59,86 @@ static GColor contrasting_color(uint8_t bg_argb) {
 }
 
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
-    GRect bounds = layer_get_bounds(layer);
-    int w = bounds.size.w;
-    int h = bounds.size.h;
-
     GColor bg     = (GColor){.argb = s_bg_argb};
     GColor filled = (GColor){.argb = s_filled_argb};
     GColor empty  = (GColor){.argb = s_empty_argb};
 
-    int radius  = (w >= 180) ? 13 : 8;
-    int spacing = (w >= 180) ? 48 : 32;
-    int bar_h   = (w >= 180) ? 18 : 14;
-    int bar_gap = spacing - 2 * radius;  // same visual gap as between dots
-    int font_h  = (w >= 180) ? 22 : 18;
-
-    int grid_w = (GRID_COLS - 1) * spacing + radius * 2;
-    int margin = (w - grid_w) / 2 - 1;
-    int grid_x = margin + radius;
-
-    // Segmented bar geometry: 1px segment + 1px gap on Basalt, 2px + 1px on Emery
-    int seg_w  = (w >= 180) ? 2 : 1;
-    int seg_sp = seg_w + 1;        // stride per segment (visible + 1px gap)
-    int bar_w  = 60 * seg_sp;      // total bar width
-    int bm     = (w - bar_w) / 2 - 1;  // bar margin, same centering offset as dots
-
-    // Center all content vertically: dots + bar + half-gap + text row
-    int total_h = (GRID_ROWS - 1) * spacing + 2 * radius + bar_gap + bar_h + bar_gap / 2 + font_h;
-    int grid_y  = (h - total_h) / 2 + radius + 2;
-
     // ── background ────────────────────────────────────────────────────────────
     graphics_context_set_fill_color(ctx, bg);
-    graphics_fill_rect(ctx, bounds, 0, GCornerNone);
+    graphics_fill_rect(ctx, layer_get_bounds(layer), 0, GCornerNone);
 
     // ── hours grid ────────────────────────────────────────────────────────────
-    for (int row = 0; row < GRID_ROWS; row++) {
-        for (int col = 0; col < GRID_COLS; col++) {
-            int hour = col * GRID_ROWS + row + 1;
-            GPoint center = GPoint(grid_x + col * spacing, grid_y + row * spacing);
-            graphics_context_set_fill_color(ctx, (hour <= s_hours) ? filled : empty);
-            graphics_fill_circle(ctx, center, radius);
-        }
-    }
+    graphics_context_set_fill_color(ctx, filled);
+    for (int row = 0; row < GRID_ROWS; row++)
+        for (int col = 0; col < GRID_COLS; col++)
+            if (col * GRID_ROWS + row + 1 <= s_hours)
+                graphics_fill_circle(ctx, GPoint(s_grid_x + col * s_spacing, s_grid_y + row * s_spacing), s_radius);
+    graphics_context_set_fill_color(ctx, empty);
+    for (int row = 0; row < GRID_ROWS; row++)
+        for (int col = 0; col < GRID_COLS; col++)
+            if (col * GRID_ROWS + row + 1 > s_hours)
+                graphics_fill_circle(ctx, GPoint(s_grid_x + col * s_spacing, s_grid_y + row * s_spacing), s_radius);
 
-    // ── minutes bar: 60 segments, each separated by a 1px background gap ────
-    int bar_y = grid_y + (GRID_ROWS - 1) * spacing + radius + bar_gap;
+    // ── minutes bar ───────────────────────────────────────────────────────────
+    graphics_context_set_fill_color(ctx, filled);
+    for (int i = 0; i < s_minutes; i++)
+        graphics_fill_rect(ctx, GRect(s_bm + i * s_seg_sp, s_bar_y, s_seg_w, s_bar_h), 0, GCornerNone);
+    graphics_context_set_fill_color(ctx, empty);
+    for (int i = s_minutes; i < 60; i++)
+        graphics_fill_rect(ctx, GRect(s_bm + i * s_seg_sp, s_bar_y, s_seg_w, s_bar_h), 0, GCornerNone);
 
-    for (int i = 0; i < 60; i++) {
-        graphics_context_set_fill_color(ctx, (i < s_minutes) ? filled : empty);
-        graphics_fill_rect(ctx, GRect(bm + i * seg_sp, bar_y, seg_w, bar_h), 0, GCornerNone);
-    }
-
-    // 10-minute tick dashes below the bar (including 0 and 60)
+    // 10-minute tick marks
     graphics_context_set_fill_color(ctx, filled);
     for (int i = 0; i <= 60; i += 10) {
         int pos = (i == 60) ? 59 : i;
-        graphics_fill_rect(ctx, GRect(bm + pos * seg_sp, bar_y + bar_h + 1, seg_w, 2), 0, GCornerNone);
+        graphics_fill_rect(ctx, GRect(s_bm + pos * s_seg_sp, s_bar_y + s_bar_h + 1, s_seg_w, 2), 0, GCornerNone);
     }
 
-    // ── bottom row: date left, AM/PM right — spaced below bar by bar_gap ─────
-    int bar_bottom = bar_y + bar_h;
-    int text_y     = bar_bottom + bar_gap / 2 + 2;
-
-    GFont info_font = (w >= 180) ? fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD)
-                                 : fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);
-
+    // ── bottom row: date left, AM/PM right ────────────────────────────────────
     graphics_context_set_text_color(ctx, contrasting_color(s_bg_argb));
 
-    char buf[16];
-
-    // Date — left-aligned with bar left edge
     if (s_show_date) {
+        char buf[16];
         time_t now = time(NULL);
         struct tm *t = localtime(&now);
         static const char *fmts[] = { "%m/%d/%y", "%m/%d", "%d/%m/%y", "%d/%m" };
         strftime(buf, sizeof(buf), fmts[s_date_style < 4 ? s_date_style : 0], t);
-        graphics_draw_text(ctx, buf, info_font,
-                           GRect(bm, text_y, bar_w, font_h),
+        graphics_draw_text(ctx, buf, s_font,
+                           GRect(s_bm, s_text_y, s_bar_w, s_font_h),
                            GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
     }
 
-    // AM/PM indicator — right-aligned with bar right edge
-    // Layout (right to left): [AM][●] [gap] [PM][●]  | bm+bar_w
-    {
-        int dot_r   = (w >= 180) ? 4 : 3;
-        int lbl_gap = 3;  // px between label text and its dot
-        int grp_gap = 5;  // px between AM group and PM group
-        int x_right = bm + bar_w;
-        int dot_cy  = text_y + font_h / 2;
+    // AM/PM — right-aligned, layout (right to left): [AM][●]  [PM][●] | bm+bar_w
+    graphics_draw_text(ctx, "AM", s_font,
+        GRect(s_am_lx, s_text_y, s_am_sz_w + 2, s_font_h), GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+    graphics_context_set_fill_color(ctx, s_is_pm ? empty : filled);
+    graphics_fill_circle(ctx, GPoint(s_am_dot_x, s_dot_cy), s_dot_r);
 
-        GSize am_sz = graphics_text_layout_get_content_size(
-            "AM", info_font, GRect(0, 0, bar_w / 2, font_h),
-            GTextOverflowModeWordWrap, GTextAlignmentLeft);
-        GSize pm_sz = graphics_text_layout_get_content_size(
-            "PM", info_font, GRect(0, 0, bar_w / 2, font_h),
-            GTextOverflowModeWordWrap, GTextAlignmentLeft);
-
-        int pm_dot_x = x_right - dot_r;
-        int pm_lx    = pm_dot_x - dot_r - lbl_gap - pm_sz.w;
-        int am_dot_x = pm_lx - grp_gap - dot_r;
-        int am_lx    = am_dot_x - dot_r - lbl_gap - am_sz.w;
-
-        graphics_draw_text(ctx, "AM", info_font,
-            GRect(am_lx, text_y, am_sz.w + 2, font_h),
-            GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
-        graphics_context_set_fill_color(ctx, s_is_pm ? empty : filled);
-        graphics_fill_circle(ctx, GPoint(am_dot_x, dot_cy), dot_r);
-
-        graphics_draw_text(ctx, "PM", info_font,
-            GRect(pm_lx, text_y, pm_sz.w + 2, font_h),
-            GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
-        graphics_context_set_fill_color(ctx, s_is_pm ? filled : empty);
-        graphics_fill_circle(ctx, GPoint(pm_dot_x, dot_cy), dot_r);
-    }
+    graphics_draw_text(ctx, "PM", s_font,
+        GRect(s_pm_lx, s_text_y, s_pm_sz_w + 2, s_font_h), GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+    graphics_context_set_fill_color(ctx, s_is_pm ? filled : empty);
+    graphics_fill_circle(ctx, GPoint(s_pm_dot_x, s_dot_cy), s_dot_r);
 }
 
 static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     Tuple *t;
 
     t = dict_find(iter, MESSAGE_KEY_BG_COLOR);
-    if (t) { s_bg_argb = rgb24_to_argb8(t->value->int32); persist_write_int(PERSIST_KEY_BG, s_bg_argb); }
+    if (t) s_bg_argb = rgb24_to_argb8(t->value->int32);
 
     t = dict_find(iter, MESSAGE_KEY_FILLED_COLOR);
-    if (t) { s_filled_argb = rgb24_to_argb8(t->value->int32); persist_write_int(PERSIST_KEY_FILLED, s_filled_argb); }
+    if (t) s_filled_argb = rgb24_to_argb8(t->value->int32);
 
     t = dict_find(iter, MESSAGE_KEY_EMPTY_COLOR);
-    if (t) { s_empty_argb = rgb24_to_argb8(t->value->int32); persist_write_int(PERSIST_KEY_EMPTY, s_empty_argb); }
+    if (t) s_empty_argb = rgb24_to_argb8(t->value->int32);
 
     t = dict_find(iter, MESSAGE_KEY_SHOW_DATE);
-    if (t) { s_show_date = (uint8_t)t->value->int32; persist_write_int(PERSIST_KEY_SHOW_DATE, s_show_date); }
+    if (t) s_show_date = (uint8_t)t->value->int32;
 
     t = dict_find(iter, MESSAGE_KEY_DATE_STYLE);
     if (t) {
         uint8_t v = (t->type == TUPLE_CSTRING) ? (uint8_t)atoi(t->value->cstring) : (uint8_t)t->value->int32;
         s_date_style = (v < 4) ? v : 0;
-        persist_write_int(PERSIST_KEY_DATE_STYLE, s_date_style);
     }
 
     layer_mark_dirty(s_canvas_layer);
@@ -197,7 +154,49 @@ static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
 
 static void window_load(Window *window) {
     Layer *root = window_get_root_layer(window);
-    s_canvas_layer = layer_create(layer_get_bounds(root));
+    GRect bounds = layer_get_bounds(root);
+    int w = bounds.size.w;
+    int h = bounds.size.h;
+    bool emery = (w >= 180);
+
+    // Compute all layout constants once — never recalculated while the watch runs
+    s_radius  = emery ? 13 : 8;
+    s_spacing = emery ? 48 : 32;
+    s_bar_h   = emery ? 18 : 14;
+    int bar_gap = s_spacing - 2 * s_radius;
+    s_font_h  = emery ? 22 : 18;
+
+    int grid_w = (GRID_COLS - 1) * s_spacing + s_radius * 2;
+    s_grid_x  = (w - grid_w) / 2 - 1 + s_radius;
+
+    s_seg_w  = emery ? 2 : 1;
+    s_seg_sp = s_seg_w + 1;
+    s_bar_w  = 60 * s_seg_sp;
+    s_bm     = (w - s_bar_w) / 2 - 1;
+
+    int total_h = (GRID_ROWS - 1) * s_spacing + 2 * s_radius + bar_gap + s_bar_h + bar_gap / 2 + s_font_h;
+    s_grid_y = (h - total_h) / 2 + s_radius + 2;
+    s_bar_y  = s_grid_y + (GRID_ROWS - 1) * s_spacing + s_radius + bar_gap;
+    s_text_y = s_bar_y + s_bar_h + bar_gap / 2 + 2;
+
+    s_font   = emery ? fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD)
+                     : fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);
+    s_dot_r  = emery ? 4 : 3;
+    s_dot_cy = s_text_y + s_font_h / 2;
+
+    GSize am_sz = graphics_text_layout_get_content_size(
+        "AM", s_font, GRect(0, 0, s_bar_w / 2, s_font_h), GTextOverflowModeWordWrap, GTextAlignmentLeft);
+    GSize pm_sz = graphics_text_layout_get_content_size(
+        "PM", s_font, GRect(0, 0, s_bar_w / 2, s_font_h), GTextOverflowModeWordWrap, GTextAlignmentLeft);
+    s_am_sz_w = am_sz.w;
+    s_pm_sz_w = pm_sz.w;
+
+    s_pm_dot_x = s_bm + s_bar_w - s_dot_r;
+    s_pm_lx    = s_pm_dot_x - s_dot_r - 3 - s_pm_sz_w;
+    s_am_dot_x = s_pm_lx - 5 - s_dot_r;
+    s_am_lx    = s_am_dot_x - s_dot_r - 3 - s_am_sz_w;
+
+    s_canvas_layer = layer_create(bounds);
     layer_set_update_proc(s_canvas_layer, canvas_update_proc);
     layer_add_child(root, s_canvas_layer);
 
@@ -213,13 +212,15 @@ static void window_unload(Window *window) {
     layer_destroy(s_canvas_layer);
 }
 
-static void init(void) {
-    s_bg_argb     = persist_exists(PERSIST_KEY_BG)     ? (uint8_t)persist_read_int(PERSIST_KEY_BG)     : DEFAULT_BG_ARGB;
-    s_filled_argb = persist_exists(PERSIST_KEY_FILLED) ? (uint8_t)persist_read_int(PERSIST_KEY_FILLED) : DEFAULT_FILLED_ARGB;
-    s_empty_argb  = persist_exists(PERSIST_KEY_EMPTY)  ? (uint8_t)persist_read_int(PERSIST_KEY_EMPTY)  : DEFAULT_EMPTY_ARGB;
+#define persist_read_or(key, def) \
+    (persist_exists(key) ? (uint8_t)persist_read_int(key) : (uint8_t)(def))
 
-    s_show_date   = persist_exists(PERSIST_KEY_SHOW_DATE)   ? (uint8_t)persist_read_int(PERSIST_KEY_SHOW_DATE)   : 1;
-    s_date_style  = persist_exists(PERSIST_KEY_DATE_STYLE)  ? (uint8_t)persist_read_int(PERSIST_KEY_DATE_STYLE)  : 0;
+static void init(void) {
+    s_bg_argb     = persist_read_or(PERSIST_KEY_BG,         DEFAULT_BG_ARGB);
+    s_filled_argb = persist_read_or(PERSIST_KEY_FILLED,     DEFAULT_FILLED_ARGB);
+    s_empty_argb  = persist_read_or(PERSIST_KEY_EMPTY,      DEFAULT_EMPTY_ARGB);
+    s_show_date   = persist_read_or(PERSIST_KEY_SHOW_DATE,  1);
+    s_date_style  = persist_read_or(PERSIST_KEY_DATE_STYLE, 0);
 
     s_window = window_create();
     window_set_window_handlers(s_window, (WindowHandlers){
@@ -230,10 +231,15 @@ static void init(void) {
     tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
 
     app_message_register_inbox_received(inbox_received_handler);
-    app_message_open(128, 0);
+    app_message_open(72, 0);
 }
 
 static void deinit(void) {
+    persist_write_int(PERSIST_KEY_BG,         s_bg_argb);
+    persist_write_int(PERSIST_KEY_FILLED,     s_filled_argb);
+    persist_write_int(PERSIST_KEY_EMPTY,      s_empty_argb);
+    persist_write_int(PERSIST_KEY_SHOW_DATE,  s_show_date);
+    persist_write_int(PERSIST_KEY_DATE_STYLE, s_date_style);
     tick_timer_service_unsubscribe();
     window_destroy(s_window);
 }
