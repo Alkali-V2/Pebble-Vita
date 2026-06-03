@@ -1,7 +1,7 @@
 {
   "name": "pnooka",
   "author": "Ryan Cady",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "keywords": ["pebble-app"],
   "private": true,
   "dependencies": {
@@ -20,7 +20,9 @@
       "BG_COLOR",
       "FILLED_COLOR",
       "EMPTY_COLOR",
-      "SHOW_DATE"
+      "SHOW_DATE",
+      "DATE_FORMAT",
+      "SHOW_YEAR"
     ],
     "resources": {
       "media": []

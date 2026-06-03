@@ -38,6 +38,18 @@ module.exports = [
     "label": "Show Date (bottom left)",
     "defaultValue": true
   },
+  {
+    "type": "toggle",
+    "messageKey": "DATE_FORMAT",
+    "label": "Use DD/MM format",
+    "defaultValue": false
+  },
+  {
+    "type": "toggle",
+    "messageKey": "SHOW_YEAR",
+    "label": "Show Year in Date",
+    "defaultValue": true
+  },
 
   {
     "type": "submit",
