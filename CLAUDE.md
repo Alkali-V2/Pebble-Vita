@@ -29,8 +29,6 @@ src/pkjs/index.js      — PebbleKit JS entry point; Clay init + ready handler
 src/pkjs/config.js     — Clay settings config (colors + date toggle)
 package.json           — App manifest (UUID, messageKeys, platforms)
 wscript                — Waf build script
-generate_store_assets.py — Renders all store assets via Pillow (no device needed)
-store_assets/          — Banner, icon, screenshots (auto-generated)
 p5 sketch/             — Original p5.js prototype used to design the layout
 ```
 
@@ -61,10 +59,6 @@ Colors are sent as 24-bit RGB integers by Clay and converted to Pebble's 8-bit A
 3. On every app start (`ready` event) → `index.js` re-sends stored Clay settings from `localStorage` to the watch
 
 The `ready` re-send (step 3) is critical — without it, settings are lost on reconnect/restart because Clay doesn't do this automatically.
-
-## Store assets
-
-Run `python3 generate_store_assets.py` to regenerate all four assets. The script mirrors the layout constants from `main.c` exactly and renders at native resolution then scales up with NEAREST for pixel-perfect output. No device or emulator needed.
 
 ## Known constraints
 

@@ -3,7 +3,7 @@
 
 A minimal dot-matrix watchface for Pebble Time. The **P** stands for Pebble. The **NOOKA** is for [Nooka](https://www.nooka.com) — the watch brand whose abstract time-reading aesthetic inspired this design.
 
-![PNOOKA banner](store_assets/banner_720x320.png)
+![PNOOKA banner](banner_720x320.png)
 
 ## How to read it
 
