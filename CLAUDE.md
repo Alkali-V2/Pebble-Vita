@@ -19,7 +19,7 @@ Minimal dot-matrix Pebble watchface inspired by Nooka watches. "The P is silent.
 | Aplite | Pebble Classic / Pebble Steel | 144×168, B&W |
 | Diorite | Pebble 2 | 144×168, B&W |
 
-B&W platforms use black/white defaults (`PBL_BW` macro). The color picker in settings shows a 3-shade palette (black / gray / white) via `allowGray: true` in Clay config.
+B&W platforms use black/white defaults (`PBL_BW` macro). The color picker shows the full 64-color Pebble palette on color platforms.
 
 ## Project structure
 
