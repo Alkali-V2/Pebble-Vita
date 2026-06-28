@@ -86,21 +86,6 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
                 graphics_fill_rect(ctx, GRect(cx - s_radius, cy - s_radius, s_radius * 2, s_radius * 2), 2, GCornersAll);
             }
 
-    // ── minutes bar ───────────────────────────────────────────────────────────
-    graphics_context_set_fill_color(ctx, filled);
-    for (int i = 0; i < s_minutes; i++)
-        graphics_fill_rect(ctx, GRect(s_bm + i * s_seg_sp, s_bar_y, s_seg_w, s_bar_h), 0, GCornerNone);
-    graphics_context_set_fill_color(ctx, empty);
-    for (int i = s_minutes; i < 60; i++)
-        graphics_fill_rect(ctx, GRect(s_bm + i * s_seg_sp, s_bar_y, s_seg_w, s_bar_h), 0, GCornerNone);
-
-    // 10-minute tick marks
-    graphics_context_set_fill_color(ctx, filled);
-    for (int i = 0; i <= 60; i += 10) {
-        int pos = (i == 60) ? 59 : i;
-        graphics_fill_rect(ctx, GRect(s_bm + pos * s_seg_sp, s_bar_y + s_bar_h + 1, s_seg_w, 2), 0, GCornerNone);
-    }
-
     // ── bottom row: date left, AM/PM right ────────────────────────────────────
     graphics_context_set_text_color(ctx, contrasting_color(s_bg_argb));
 
@@ -152,7 +137,6 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
 }
 
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
-    s_hours   = tick_time->tm_hour % 12;
     if (s_hours == 0) s_hours = 12;
     s_minutes = tick_time->tm_min;
     s_is_pm   = (tick_time->tm_hour >= 12) ? 1 : 0;
@@ -209,7 +193,6 @@ static void window_load(Window *window) {
 
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
-    s_hours   = t->tm_hour % 12;
     if (s_hours == 0) s_hours = 12;
     s_minutes = t->tm_min;
     s_is_pm   = (t->tm_hour >= 12) ? 1 : 0;

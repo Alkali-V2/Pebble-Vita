@@ -1,30 +1,37 @@
 {
-  "name": "Vita",
-  "author": "Alkali-V2",
-  "version": "1.0.0",
-  "keywords": ["pebble-app"],
-  "private": true,
-  "dependencies": {
-    "pebble-clay": "*"
-  },
-  "pebble": {
-    "displayName": "VITA",
-    "uuid": "cd4a652b-865b-4b29-9c2b-a612673fa85e",
-    "sdkVersion": "3",
-    "enableMultiJS": true,
-    "targetPlatforms": ["basalt", "emery", "aplite", "diorite"],
-    "watchapp": {
-      "watchface": true
+    "author": "Alkali-V2",
+    "dependencies": {
+        "pebble-clay": "*"
     },
-    "messageKeys": [
-      "BG_COLOR",
-      "FILLED_COLOR",
-      "EMPTY_COLOR",
-      "SHOW_DATE",
-      "DATE_STYLE"
+    "keywords": [
+        "pebble-app"
     ],
-    "resources": {
-      "media": []
-    }
-  }
+    "name": "vita",
+    "pebble": {
+        "displayName": "VITA",
+        "enableMultiJS": true,
+        "messageKeys": [
+            "BG_COLOR",
+            "FILLED_COLOR",
+            "EMPTY_COLOR",
+            "SHOW_DATE",
+            "DATE_STYLE"
+        ],
+        "projectType": "native",
+        "resources": {
+            "media": []
+        },
+        "sdkVersion": "3",
+        "targetPlatforms": [
+            "basalt",
+            "emery",
+            "aplite",
+            "diorite"
+        ],
+        "uuid": "cd4a652b-865b-4b29-9c2b-a612673fa85e",
+        "watchapp": {
+            "watchface": true
+        }
+    },
+    "version": "1.0.0"
 }
