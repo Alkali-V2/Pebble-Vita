@@ -80,18 +80,18 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         if(index < partial_index) {
           //fully elapsed hour
           graphics_context_set_fill_color(ctx, filled);
-          graphics_fill_rect(ctx, block, 0, GCornerNone);
+          graphics_fill_rect(ctx, block, 4, GCornersAll);
         } else if (index == partial_index && index <= GRID_COLS * GRID_ROWS) {
           //Progressively filling minutes cell
           int fill_h = (block.size.h * s_minutes) / 60;
           graphics_context_set_fill_color(ctx, empty);
-          graphics_fill_rect(ctx, block, 0, GCornerNone);
+          graphics_fill_rect(ctx, block, 4, GCornersAll);
           graphics_context_set_fill_color(ctx, filled);
-          graphics_fill_rect(ctx, GRect(block.origin.x, block.origin.y, block.size.w, fill_h), 0, GCornerNone);
+          graphics_fill_rect(ctx, GRect(block.origin.x, block.origin.y, block.size.w, fill_h), 4, GCornerTopLeft | GCornerTopRight);
         } else {
           //not reached yet
           graphics_context_set_fill_color(ctx, empty);
-          graphics_fill_rect(ctx, block, 0, GCornerNone);
+          graphics_fill_rect(ctx, block, 4, GCornersAll);
         }
       }
     }
