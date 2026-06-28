@@ -26,7 +26,10 @@
             "BIRTH_MONTH",
             "BIRTH_DAY",
             "LIFE_EXPECTANCY_YEAR",
-            "TOP_BAR_STYLE"
+            "TOP_BAR_STYLE",
+            "SHOW_BAR1_TEXT",
+            "SHOW_LIFE_BAR_TEXT",
+            "SHOW_BAR2_TEXT"
         ],
         "projectType": "native",
         "resources": {

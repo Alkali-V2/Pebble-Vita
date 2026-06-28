@@ -87,6 +87,20 @@ module.exports = [
     ]
   },
   {
+    "type": "toggle",
+    "messageKey": "SHOW_BAR1_TEXT",
+    "label": "Show Day Number on Bar",
+    "defaultValue": true
+  },
+  
+  {
+  "type": "toggle",
+  "messageKey": "SHOW_BAR2_TEXT",
+  "label": "Show Month Number on Bar",
+  "defaultValue": true
+  },
+  
+  {
     "type": "color",
     "allowGray": true,
     "messageKey": "BAR1_COLOR",
@@ -144,6 +158,12 @@ module.exports = [
     "label": "Live Until Year",
     "attributes": { "type": "number", "min": 1900, "max": 2150 },
     "defaultValue": "2080"
+  },
+  {
+    "type": "toggle",
+    "messageKey": "SHOW_LIFE_BAR_TEXT",
+    "label": "Show Age / Total Years on Bar",
+    "defaultValue": true
   },
 
   {

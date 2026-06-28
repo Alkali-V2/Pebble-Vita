@@ -16,6 +16,9 @@ extern uint32_t MESSAGE_KEY_BIRTH_YEAR;
 extern uint32_t MESSAGE_KEY_BIRTH_MONTH;
 extern uint32_t MESSAGE_KEY_BIRTH_DAY;
 extern uint32_t MESSAGE_KEY_LIFE_EXPECTANCY_YEAR;
+extern uint32_t MESSAGE_KEY_SHOW_BAR1_TEXT;
+extern uint32_t MESSAGE_KEY_SHOW_BAR2_TEXT;
+extern uint32_t MESSAGE_KEY_SHOW_LIFE_BAR_TEXT;
 
 #define GRID_COLS 4
 #define GRID_ROWS 3
@@ -43,6 +46,9 @@ extern uint32_t MESSAGE_KEY_LIFE_EXPECTANCY_YEAR;
 #define PERSIST_KEY_BIRTH_MONTH 16
 #define PERSIST_KEY_BIRTH_DAY 17
 #define PERSIST_KEY_LIFE_EXPECTANCY_YEAR 18
+#define PERSIST_KEY_SHOW_BAR1_TEXT 19
+#define PERSIST_KEY_SHOW_LIFE_BAR_TEXT 20
+#define PERSIST_KEY_SHOW_BAR2_TEXT 21
 
 #define DEFAULT_AM_TEXT_ARGB 0xFF   // white
 #define DEFAULT_AM_BORDER_ARGB 0xC0 // black
@@ -102,6 +108,14 @@ static const GPoint s_outline_offsets[8] = {
 // this fudge factor (in px, +down / -up) rather than the centering math.
 #define MINUTES_TEXT_Y_FUDGE -4
 
+// Same idea as the two constants above, but for the numbers drawn inside the
+// progress bars (day number / age-over-total). Bars are thin, so padding is
+// intentionally small; nudge BAR_TEXT_Y_FUDGE if the digits look off-center
+// on your hardware.
+#define BAR_TEXT_V_PADDING 1
+#define BAR_TEXT_H_PADDING 4
+#define BAR_TEXT_Y_FUDGE -2
+
 static Window *s_window;
 static Layer *s_canvas_layer;
 
@@ -116,6 +130,13 @@ static uint8_t s_am_text_argb, s_am_border_argb, s_pm_text_argb, s_pm_border_arg
 static uint8_t s_top_bar_style; // TOP_BAR_DAY_OF_MONTH or TOP_BAR_DAY_OF_YEAR
 static uint8_t s_bar1_argb, s_bar2_argb, s_bar3_argb;
 static int s_birth_year, s_birth_month, s_birth_day, s_life_expectancy_year;
+static uint8_t s_show_bar1_text, s_show_bar2_text, s_show_life_bar_text;
+
+// Text shown inside bar1 ("28" / "179") and the life bar ("40/80"),
+// refreshed by recompute_bars() alongside the fractions they label.
+static char s_bar1_text[8];
+static char s_bar2_text[4];
+static char s_life_bar_text[16];
 
 // Bar progress cache — permille (0..1000), recomputed once per day (or
 // whenever settings change) rather than on every minute tick, since none of
@@ -129,6 +150,8 @@ static int s_grid_x, s_grid_y;
 static GRect s_bar1_rect, s_bar2_rect, s_life_bar_rect;
 static GFont s_minutes_font;
 static int s_minutes_text_h;
+static GFont s_bar_text_font;
+static int s_bar_text_h;
 
 static uint8_t rgb24_to_argb8(int32_t val) {
   uint8_t r = (val >> 16) & 0xFF;
@@ -143,6 +166,17 @@ static int clampi(int v, int lo, int hi) {
 
 static int clamp_permille(int v) {
   return clampi(v, 0, 1000);
+}
+
+// Black or white, whichever reads better against a given background. Used
+// for the bar-text "ink" — paired with an outline halo (see
+// draw_outlined_text) so it stays legible over both the filled and empty
+// portions of a bar, not just the page background.
+static GColor contrasting_color(uint8_t bg_argb) {
+  int r = (bg_argb >> 4) & 0x3;
+  int g = (bg_argb >> 2) & 0x3;
+  int b = bg_argb & 0x3;
+  return (r * 30 + g * 59 + b * 11 >= 150) ? GColorBlack : GColorWhite;
 }
 
 // ── Calendar math (no floating point) ───────────────────────────────────────
@@ -191,7 +225,8 @@ static void recompute_bars(void) {
     s_bar1_frac = (day - 1) * 1000 / days_in_month(year, month);
   }
 
-  s_bar2_frac = (month - 1) * 1000 / 12;
+  s_bar2_frac = month * 1000 / 12;
+  snprintf(s_bar2_text, sizeof(s_bar2_text), "%d", month);
 
   int age_days = absolute_days(year, month, day) -
                  absolute_days(s_birth_year, s_birth_month, s_birth_day);
@@ -199,6 +234,20 @@ static void recompute_bars(void) {
                    absolute_days(s_birth_year, s_birth_month, s_birth_day);
   if (life_days < 1) life_days = 1;
   s_bar3_frac = clamp_permille((age_days * 1000) / life_days);
+
+  // Bar1's number mirrors whichever metric it's showing.
+  if (s_top_bar_style == TOP_BAR_DAY_OF_YEAR) {
+    snprintf(s_bar1_text, sizeof(s_bar1_text), "%d", day_of_year(year, month, day));
+  } else {
+    snprintf(s_bar1_text, sizeof(s_bar1_text), "%d", day);
+  }
+
+  // Life bar's number is a simple whole-years reading — current age over
+  // total expected lifespan — separate from the day-accurate fill fraction
+  // above. Clamped so a birth year typo can't print something nonsensical.
+  int age_years = clampi(year - s_birth_year, 0, 999);
+  int total_years = clampi(s_life_expectancy_year - s_birth_year, 1, 999);
+  snprintf(s_life_bar_text, sizeof(s_life_bar_text), "%d/%d", age_years, total_years);
 
   s_bars_computed_for_mday = day;
 }
@@ -215,6 +264,22 @@ static void fill_bar(GContext *ctx, GRect bar, int frac_permille, GColor fill, G
     graphics_context_set_fill_color(ctx, fill);
     graphics_fill_rect(ctx, GRect(bar.origin.x, bar.origin.y, fill_w, bar.size.h), 0, GCornerNone);
   }
+}
+
+// Stamps `text` with an `outline` halo (the same 8-direction nudge trick used
+// for the AM/PM minute number) then the `fill` ink on top, so the digits stay
+// legible whether they land over a bar's filled or empty portion.
+static void draw_outlined_text(GContext *ctx, const char *text, GFont font, GRect box,
+                                GColor fill, GColor outline) {
+  graphics_context_set_text_color(ctx, outline);
+  for (int i = 0; i < 8; i++) {
+    GRect ob = box;
+    ob.origin.x += s_outline_offsets[i].x;
+    ob.origin.y += s_outline_offsets[i].y;
+    graphics_draw_text(ctx, text, font, ob, GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+  }
+  graphics_context_set_text_color(ctx, fill);
+  graphics_draw_text(ctx, text, font, box, GTextOverflowModeFill, GTextAlignmentCenter, NULL);
 }
 
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
@@ -297,6 +362,32 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
   fill_bar(ctx, s_bar1_rect, s_bar1_frac, (GColor){.argb = s_bar1_argb}, empty);
   fill_bar(ctx, s_bar2_rect, s_bar2_frac, (GColor){.argb = s_bar2_argb}, empty);
   fill_bar(ctx, s_life_bar_rect, s_bar3_frac, (GColor){.argb = s_bar3_argb}, empty);
+
+  // Optional numbers inside bar1 and the life bar (bar2/Month never gets
+  // text — not part of what was asked for, but the toggle pattern below
+  // would extend to it easily if that's ever wanted).
+  if (s_show_bar1_text || s_show_life_bar_text) {
+    GColor ink = contrasting_color(s_bg_argb);
+    GColor halo = empty;
+
+    if (s_show_bar1_text) {
+      int ty = s_bar1_rect.origin.y + (s_bar1_rect.size.h - s_bar_text_h) / 2 + BAR_TEXT_Y_FUDGE;
+      GRect box = GRect(s_bar1_rect.origin.x, ty, s_bar1_rect.size.w, s_bar_text_h + 4);
+      draw_outlined_text(ctx, s_bar1_text, s_bar_text_font, box, ink, halo);
+    }
+    
+    if (s_show_bar2_text) {
+      int ty = s_bar2_rect.origin.y + (s_bar2_rect.size.h - s_bar_text_h) / 2 + BAR_TEXT_Y_FUDGE;
+      GRect box = GRect(s_bar2_rect.origin.x, ty, s_bar2_rect.size.w, s_bar_text_h + 4);
+      draw_outlined_text(ctx, s_bar2_text, s_bar_text_font, box, ink, halo);
+    }
+
+    if (s_show_life_bar_text) {
+      int ty = s_life_bar_rect.origin.y + (s_life_bar_rect.size.h - s_bar_text_h) / 2 + BAR_TEXT_Y_FUDGE;
+      GRect box = GRect(s_life_bar_rect.origin.x, ty, s_life_bar_rect.size.w, s_bar_text_h + 4);
+      draw_outlined_text(ctx, s_life_bar_text, s_bar_text_font, box, ink, halo);
+    }
+  }
 }
 
 // Decode an integer tuple at the width PebbleKit JS actually sent it in. JS
@@ -369,6 +460,15 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
   t = dict_find(iter, MESSAGE_KEY_LIFE_EXPECTANCY_YEAR);
   if (t) { s_life_expectancy_year = clampi(tuple_to_int(t), 1900, 2150); date_settings_changed = true; }
 
+  t = dict_find(iter, MESSAGE_KEY_SHOW_BAR1_TEXT);
+  if (t) s_show_bar1_text = (uint8_t)(tuple_to_int(t) != 0);
+  
+  t = dict_find(iter, MESSAGE_KEY_SHOW_BAR2_TEXT); 
+  if (t) s_show_bar2_text = (uint8_t)(tuple_to_int(t) != 0);
+
+  t = dict_find(iter, MESSAGE_KEY_SHOW_LIFE_BAR_TEXT);
+  if (t) s_show_life_bar_text = (uint8_t)(tuple_to_int(t) != 0);
+
   // The bar metrics only need recomputing when something that feeds them
   // changed — not on every settings save (e.g. a pure color tweak).
   if (date_settings_changed) recompute_bars();
@@ -416,6 +516,41 @@ static void pick_minutes_font(int block_side) {
   }
 }
 
+// Candidates for the in-bar numbers, largest to smallest. GOTHIC_14 is the
+// smallest system font Pebble ships (there's no GOTHIC_9/11), so this is as
+// far down as we can fall back — it's why the bars need to be tall enough
+// (>=14px) to give it room in the first place.
+static const char * const s_bar_font_keys[] = {
+    FONT_KEY_GOTHIC_18_BOLD,
+    FONT_KEY_GOTHIC_18,
+    FONT_KEY_GOTHIC_14_BOLD,
+    FONT_KEY_GOTHIC_14,
+};
+#define BAR_FONT_COUNT (sizeof(s_bar_font_keys) / sizeof(s_bar_font_keys[0]))
+
+// Picks the largest candidate that fits both bar1's number ("999", checked
+// against bar1's narrower width) and the life bar's number ("999/999",
+// checked against the life bar's full width) within `max_h`. One shared font
+// keeps the two bars' digits visually consistent.
+static void pick_bar_font(int max_h, int bar1_max_w, int life_max_w) {
+  s_bar_text_font = fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD); // safe fallback
+  s_bar_text_h = 14;
+
+  for (size_t i = 0; i < BAR_FONT_COUNT; i++) {
+    GFont candidate = fonts_get_system_font(s_bar_font_keys[i]);
+    GSize sz1 = graphics_text_layout_get_content_size(
+        "999", candidate, GRect(0, 0, 200, 100), GTextOverflowModeFill, GTextAlignmentLeft);
+    GSize sz2 = graphics_text_layout_get_content_size(
+        "999/999", candidate, GRect(0, 0, 200, 100), GTextOverflowModeFill, GTextAlignmentLeft);
+
+    if (sz1.h <= max_h && sz2.h <= max_h && sz1.w <= bar1_max_w && sz2.w <= life_max_w) {
+      s_bar_text_font = candidate;
+      s_bar_text_h = (sz1.h > sz2.h) ? sz1.h : sz2.h;
+      break;
+    }
+  }
+}
+
 static void window_load(Window *window) {
   Layer *root = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(root);
@@ -427,7 +562,10 @@ static void window_load(Window *window) {
   s_radius = emery ? 19 : 12;
   s_spacing = emery ? 48 : 32;
   int bar_gap = s_spacing - 2 * s_radius;   // vertical breathing room, scaled to platform
-  int bar_h = emery ? 10 : 8;               // progress bar thickness
+  int bar_h = 18;                           // progress bar thickness — fixed (not platform-
+                                             // scaled) so the in-bar numbers get the same
+                                             // font size everywhere; comfortably over the
+                                             // 14px floor needed to fit GOTHIC_14 text.
   int bar_sub_gap = emery ? 8 : 6;          // gap between the two top bars
 
   int grid_w = (GRID_COLS - 1) * s_spacing + s_radius * 2;
@@ -451,6 +589,11 @@ static void window_load(Window *window) {
   // Largest minute-number font that fits inside one grid block without
   // crossing its rounded border.
   pick_minutes_font(s_radius * 2);
+
+  // Largest bar-number font that fits inside the (now taller) bars.
+  pick_bar_font(bar_h - 2 * BAR_TEXT_V_PADDING,
+                s_bar1_rect.size.w - 2 * BAR_TEXT_H_PADDING,
+                s_life_bar_rect.size.w - 2 * BAR_TEXT_H_PADDING);
 
   s_canvas_layer = layer_create(bounds);
   layer_set_update_proc(s_canvas_layer, canvas_update_proc);
@@ -489,6 +632,9 @@ static void init(void) {
   s_birth_month = persist_read_int_or(PERSIST_KEY_BIRTH_MONTH, DEFAULT_BIRTH_MONTH);
   s_birth_day = persist_read_int_or(PERSIST_KEY_BIRTH_DAY, DEFAULT_BIRTH_DAY);
   s_life_expectancy_year = persist_read_int_or(PERSIST_KEY_LIFE_EXPECTANCY_YEAR, DEFAULT_LIFE_EXPECTANCY_YEAR);
+  s_show_bar1_text = persist_read_or(PERSIST_KEY_SHOW_BAR1_TEXT, 1);
+  s_show_bar2_text = persist_read_or(PERSIST_KEY_SHOW_BAR2_TEXT, 1);
+  s_show_life_bar_text = persist_read_or(PERSIST_KEY_SHOW_LIFE_BAR_TEXT, 1);
 
   recompute_bars();
 
@@ -521,6 +667,9 @@ static void deinit(void) {
   persist_write_int(PERSIST_KEY_BIRTH_MONTH, s_birth_month);
   persist_write_int(PERSIST_KEY_BIRTH_DAY, s_birth_day);
   persist_write_int(PERSIST_KEY_LIFE_EXPECTANCY_YEAR, s_life_expectancy_year);
+  persist_write_int(PERSIST_KEY_SHOW_BAR1_TEXT, s_show_bar1_text);
+  persist_write_int(PERSIST_KEY_SHOW_BAR2_TEXT, s_show_bar2_text);
+  persist_write_int(PERSIST_KEY_SHOW_LIFE_BAR_TEXT, s_show_life_bar_text);
 
   tick_timer_service_unsubscribe();
   window_destroy(s_window);
