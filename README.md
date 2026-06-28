@@ -1,16 +1,13 @@
-# PNOOKA
-#### *The P is silent.*
+# Vita
 
-A minimal dot-matrix watchface for Pebble Time. The **P** stands for Pebble. The **NOOKA** is for [Nooka](https://www.nooka.com) — the watch brand whose abstract time-reading aesthetic inspired this design.
-
-![PNOOKA banner](banner_720x320.png)
+A minimal square-matrix watchface for Pebble Time 2 that will also integrate with Pebble Health. I was inspired by the layout of Pnooka and the status bars of 'tens' which is what prompted my hybrid approach. 
 
 ## How to read it
 
-- **4 columns × 3 rows of dots** show the current hour. Dots fill top-to-bottom, column by column — at 3 o'clock the leftmost column is fully lit, at 6 the first two columns are lit, and so on up to 12.
-- **60-segment bar** below the dots shows the current minute. Each segment is one minute.
+- **4 columns × 3 rows of blocks** show the current hour. Blocks fill top-to-bottom, column by column — at 3 o'clock the leftmost column is fully lit, at 6 the first two columns are lit, and so on up to 11:59am or 11:59pm which clears all the blocks.
+- **Minute Progress Blocks** The upcoming hour block fills up as minutes progress and number of exact minute can be shown (optional) if preferred
 - **Date** (MM/DD/YY) in the bottom left, aligned with the bar.
-- **AM · PM indicator** in the bottom right — the active period's dot is lit in the active color.
+- **AM · PM indicator** The "Minutes" text can be edited for AM and PM indication set with border and fill color for matching and contrast purposes.
 
 ## Compatibility
 
@@ -38,7 +35,7 @@ Requires the [Pebble SDK](https://developer.rebble.io/developer.pebble.com/sdk/i
 pebble build
 ```
 
-The output is `build/pnooka.pbw`.
+The output is `build/vita.pbw`.
 
 ## Installing
 
@@ -51,12 +48,8 @@ pebble install --phone <your-phone-ip>
 Find your phone's IP in the Pebble app under Settings → Developer Mode.
 
 ## Support the project
-
-If you enjoy PNOOKA, a small contribution is always appreciated:
-
-- ☕ [Buy Me a Coffee](https://buymeacoffee.com/ryancady)
-- 💳 [PayPal](https://paypal.me/ryancady)
+If you like it but want more, fork it on Github and make your own. If you somehow think I nailed it, give me a heart in the Pebble store. If you hate it, well, that's what reddit is for I guess. Thanks for reading!
 
 ## Author
 
-Ryan Cady
+Alkali-V2
