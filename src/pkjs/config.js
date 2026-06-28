@@ -52,6 +52,13 @@ module.exports = [
   },
 
   {
+    "type": "toggle",
+    "messageKey": "SHOW_MINUTES_TEXT",
+    "label": "Show Minute Number",
+    "defaultValue": true
+  },
+  
+  {
     "type": "submit",
     "defaultValue": "Save Settings"
   }
