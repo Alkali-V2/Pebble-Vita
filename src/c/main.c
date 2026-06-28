@@ -366,7 +366,7 @@ static void init(void) {
 
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
   app_message_register_inbox_received(inbox_received_handler);
-  app_message_open(72, 0);
+  app_message_open(256, 256);
 }
 
 static void deinit(void) {
