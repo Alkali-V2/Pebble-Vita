@@ -26,6 +26,11 @@ Open the watchface settings in the Pebble app to customize:
 | Active (dots & bar) | Color of filled hour dots and filled bar segments |
 | Inactive (unfilled) | Color of empty hour dots and empty bar segments |
 | Show Date | Toggle the date display on or off |
+| Show Minute Number | Make number visible in progressing block|
+| AM Minute Text | Set text color for the AM text|
+| AM Border Color | Set the text color for the AM border|
+| PM Minute Text | Set text color for the PM text|
+| PM Border Color | Set the text color for the PM border|
 
 ## Building
 
