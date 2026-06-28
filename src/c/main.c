@@ -71,12 +71,20 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     graphics_context_set_fill_color(ctx, filled);
     for (int row = 0; row < GRID_ROWS; row++)
         for (int col = 0; col < GRID_COLS; col++)
-            if (col * GRID_ROWS + row + 1 <= s_hours)
-                graphics_fill_circle(ctx, GPoint(s_grid_x + col * s_spacing, s_grid_y + row * s_spacing), s_radius);
+            if (col * GRID_ROWS + row + 1 <= s_hours) {
+                int cx = s_grid_x + col * s_spacing;
+                int cy = s_grid_y + row * s_spacing;
+                graphics_fill_rect(ctx, GRect(cx - s_radius, cy - s_radius, s_radius * 2, s_radius * 2), 0, GCornerNone);
+            }
+                
     graphics_context_set_fill_color(ctx, empty);
     for (int row = 0; row < GRID_ROWS; row++)
         for (int col = 0; col < GRID_COLS; col++)
-            if (col * GRID_ROWS + row + 1 > s_hours)
+            if (col * GRID_ROWS + row + 1 > s_hours) {
+                int cx = s_grid_x + col * s_spacing;
+                int cy = s_grid_y + row * s_spacing;
+                graphics_fill_rect(ctx, GRect(cx - s_radius, cy - s_radius, s_radius * 2, s_radius * 2), 0, GCornerNone);
+            }
                 graphics_fill_circle(ctx, GPoint(s_grid_x + col * s_spacing, s_grid_y + row * s_spacing), s_radius);
 
     // ── minutes bar ───────────────────────────────────────────────────────────
