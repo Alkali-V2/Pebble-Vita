@@ -59,6 +59,35 @@ module.exports = [
   },
   
   {
+    "type": "color",
+    "allowGray": true,
+    "messageKey": "AM_TEXT_COLOR",
+    "label": "AM Minute Text",
+    "defaultValue": "FFFFFF"
+  },
+  {
+    "type": "color",
+    "allowGray": true,
+    "messageKey": "AM_BORDER_COLOR",
+    "label": "AM Minute Border",
+    "defaultValue": "000000"
+  },
+  {
+    "type": "color",
+    "allowGray": true,
+    "messageKey": "PM_TEXT_COLOR",
+    "label": "PM Minute Text",
+    "defaultValue": "000000"
+  },
+  {
+    "type": "color",
+    "allowGray": true,
+    "messageKey": "PM_BORDER_COLOR",
+    "label": "PM Minute Border",
+    "defaultValue": "FFFFFF"
+  },
+  
+  {
     "type": "submit",
     "defaultValue": "Save Settings"
   }

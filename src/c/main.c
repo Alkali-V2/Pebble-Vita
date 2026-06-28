@@ -6,6 +6,10 @@ extern uint32_t MESSAGE_KEY_EMPTY_COLOR;
 extern uint32_t MESSAGE_KEY_SHOW_DATE;
 extern uint32_t MESSAGE_KEY_DATE_STYLE;
 extern uint32_t MESSAGE_KEY_SHOW_MINUTES_TEXT;
+extern uint32_t MESSAGE_KEY_AM_TEXT_COLOR;
+extern uint32_t MESSAGE_KEY_AM_BORDER_COLOR;
+extern uint32_t MESSAGE_KEY_PM_TEXT_COLOR;
+extern uint32_t MESSAGE_KEY_PM_BORDER_COLOR;
 
 #define GRID_COLS 4
 #define GRID_ROWS 3
@@ -16,6 +20,15 @@ extern uint32_t MESSAGE_KEY_SHOW_MINUTES_TEXT;
 #define PERSIST_KEY_SHOW_DATE 4
 #define PERSIST_KEY_DATE_STYLE 5
 #define PERSIST_KEY_SHOW_MINUTES_TEXT 6
+#define PERSIST_KEY_AM_TEXT_COLOR 7
+#define PERSIST_KEY_AM_BORDER_COLOR 8
+#define PERSIST_KEY_PM_TEXT_COLOR 9
+#define PERSIST_KEY_PM_BORDER_COLOR 10
+
+#define DEFAULT_AM_TEXT_ARGB 0xFF   // white
+#define DEFAULT_AM_BORDER_ARGB 0xC0 // black
+#define DEFAULT_PM_TEXT_ARGB 0xC0   // black
+#define DEFAULT_PM_BORDER_ARGB 0xFF // white
 
 #ifdef PBL_BW
 #define DEFAULT_BG_ARGB 0xFF // white
@@ -70,6 +83,7 @@ static uint8_t s_is_pm;
 static uint8_t s_bg_argb, s_filled_argb, s_empty_argb;
 static uint8_t s_show_date, s_date_style;
 static uint8_t s_show_minutes_text;
+static uint8_t s_am_text_argb, s_am_border_argb, s_pm_text_argb, s_pm_border_argb;
 
 // Layout cache — computed once at window_load, never change for a given device
 static GFont s_font;
@@ -143,8 +157,8 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
 
           // AM = light fill / dark outline, PM = dark fill / light outline —
           // the number itself now encodes AM/PM regardless of what's behind it.
-          GColor fill_color = s_is_pm ? GColorBlack : GColorWhite;
-          GColor outline_color = s_is_pm ? GColorWhite : GColorBlack;
+          GColor fill_color = (GColor){ .argb = s_is_pm ? s_pm_text_argb : s_am_text_argb };
+          GColor outline_color = (GColor){ .argb = s_is_pm ? s_pm_border_argb : s_am_border_argb };
 
           int ty = block.origin.y + (block.size.h - s_minutes_text_h) / 2 + MINUTES_TEXT_Y_FUDGE;
           GRect text_box = GRect(block.origin.x, ty, block.size.w, s_minutes_text_h + 4);
@@ -217,7 +231,19 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
 
   t = dict_find(iter, MESSAGE_KEY_SHOW_MINUTES_TEXT);
   if (t) s_show_minutes_text = (uint8_t)t->value->int32;
+  
+  t = dict_find(iter, MESSAGE_KEY_AM_TEXT_COLOR);
+  if (t) s_am_text_argb = rgb24_to_argb8(t->value->int32);
 
+  t = dict_find(iter, MESSAGE_KEY_AM_BORDER_COLOR);
+  if (t) s_am_border_argb = rgb24_to_argb8(t->value->int32);
+
+  t = dict_find(iter, MESSAGE_KEY_PM_TEXT_COLOR);
+  if (t) s_pm_text_argb = rgb24_to_argb8(t->value->int32);
+
+  t = dict_find(iter, MESSAGE_KEY_PM_BORDER_COLOR);
+  if (t) s_pm_border_argb = rgb24_to_argb8(t->value->int32);
+  
   layer_mark_dirty(s_canvas_layer);
 }
 
@@ -326,6 +352,10 @@ static void init(void) {
   s_show_date = persist_read_or(PERSIST_KEY_SHOW_DATE, 1);
   s_date_style = persist_read_or(PERSIST_KEY_DATE_STYLE, 0);
   s_show_minutes_text = persist_read_or(PERSIST_KEY_SHOW_MINUTES_TEXT, 1);
+  s_am_text_argb = persist_read_or(PERSIST_KEY_AM_TEXT_COLOR, DEFAULT_AM_TEXT_ARGB);
+  s_am_border_argb = persist_read_or(PERSIST_KEY_AM_BORDER_COLOR, DEFAULT_AM_BORDER_ARGB);
+  s_pm_text_argb = persist_read_or(PERSIST_KEY_PM_TEXT_COLOR, DEFAULT_PM_TEXT_ARGB);
+  s_pm_border_argb = persist_read_or(PERSIST_KEY_PM_BORDER_COLOR, DEFAULT_PM_BORDER_ARGB);
 
   s_window = window_create();
   window_set_window_handlers(s_window, (WindowHandlers){
@@ -346,6 +376,10 @@ static void deinit(void) {
   persist_write_int(PERSIST_KEY_SHOW_DATE, s_show_date);
   persist_write_int(PERSIST_KEY_DATE_STYLE, s_date_style);
   persist_write_int(PERSIST_KEY_SHOW_MINUTES_TEXT, s_show_minutes_text);
+  persist_write_int(PERSIST_KEY_AM_TEXT_COLOR, s_am_text_argb);
+  persist_write_int(PERSIST_KEY_AM_BORDER_COLOR, s_am_border_argb);
+  persist_write_int(PERSIST_KEY_PM_TEXT_COLOR, s_pm_text_argb);
+  persist_write_int(PERSIST_KEY_PM_BORDER_COLOR, s_pm_border_argb);
 
   tick_timer_service_unsubscribe();
   window_destroy(s_window);

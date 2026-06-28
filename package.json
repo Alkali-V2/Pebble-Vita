@@ -15,7 +15,12 @@
             "FILLED_COLOR",
             "EMPTY_COLOR",
             "SHOW_DATE",
-            "DATE_STYLE"
+            "DATE_STYLE",
+            "SHOW_MINUTES_TEXT",
+            "AM_TEXT_COLOR",
+            "AM_BORDER_COLOR",
+            "PM_TEXT_COLOR",
+            "PM_BORDER_COLOR"
         ],
         "projectType": "native",
         "resources": {
