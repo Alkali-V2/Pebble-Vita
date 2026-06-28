@@ -3,27 +3,46 @@
 extern uint32_t MESSAGE_KEY_BG_COLOR;
 extern uint32_t MESSAGE_KEY_FILLED_COLOR;
 extern uint32_t MESSAGE_KEY_EMPTY_COLOR;
-extern uint32_t MESSAGE_KEY_SHOW_DATE;
-extern uint32_t MESSAGE_KEY_DATE_STYLE;
 extern uint32_t MESSAGE_KEY_SHOW_MINUTES_TEXT;
 extern uint32_t MESSAGE_KEY_AM_TEXT_COLOR;
 extern uint32_t MESSAGE_KEY_AM_BORDER_COLOR;
 extern uint32_t MESSAGE_KEY_PM_TEXT_COLOR;
 extern uint32_t MESSAGE_KEY_PM_BORDER_COLOR;
+extern uint32_t MESSAGE_KEY_TOP_BAR_STYLE;
+extern uint32_t MESSAGE_KEY_BAR1_COLOR;
+extern uint32_t MESSAGE_KEY_BAR2_COLOR;
+extern uint32_t MESSAGE_KEY_BAR3_COLOR;
+extern uint32_t MESSAGE_KEY_BIRTH_YEAR;
+extern uint32_t MESSAGE_KEY_BIRTH_MONTH;
+extern uint32_t MESSAGE_KEY_BIRTH_DAY;
+extern uint32_t MESSAGE_KEY_LIFE_EXPECTANCY_YEAR;
 
 #define GRID_COLS 4
 #define GRID_ROWS 3
 
+// Top-left bar metric choices (MESSAGE_KEY_TOP_BAR_STYLE / s_top_bar_style)
+#define TOP_BAR_DAY_OF_MONTH 0
+#define TOP_BAR_DAY_OF_YEAR 1
+
 #define PERSIST_KEY_BG 1
 #define PERSIST_KEY_FILLED 2
 #define PERSIST_KEY_EMPTY 3
-#define PERSIST_KEY_SHOW_DATE 4
-#define PERSIST_KEY_DATE_STYLE 5
+// 4 and 5 formerly held SHOW_DATE / DATE_STYLE (removed; verbose date dropped
+// in favor of the three progress bars below). Left retired rather than
+// reused so upgrading users don't get a stale value reinterpreted.
 #define PERSIST_KEY_SHOW_MINUTES_TEXT 6
 #define PERSIST_KEY_AM_TEXT_COLOR 7
 #define PERSIST_KEY_AM_BORDER_COLOR 8
 #define PERSIST_KEY_PM_TEXT_COLOR 9
 #define PERSIST_KEY_PM_BORDER_COLOR 10
+#define PERSIST_KEY_TOP_BAR_STYLE 11
+#define PERSIST_KEY_BAR1_COLOR 12
+#define PERSIST_KEY_BAR2_COLOR 13
+#define PERSIST_KEY_BAR3_COLOR 14
+#define PERSIST_KEY_BIRTH_YEAR 15
+#define PERSIST_KEY_BIRTH_MONTH 16
+#define PERSIST_KEY_BIRTH_DAY 17
+#define PERSIST_KEY_LIFE_EXPECTANCY_YEAR 18
 
 #define DEFAULT_AM_TEXT_ARGB 0xFF   // white
 #define DEFAULT_AM_BORDER_ARGB 0xC0 // black
@@ -39,6 +58,17 @@ extern uint32_t MESSAGE_KEY_PM_BORDER_COLOR;
 #define DEFAULT_FILLED_ARGB 0xD5
 #define DEFAULT_EMPTY_ARGB 0xEA
 #endif
+
+// Bar defaults: day bar orange, month bar blue, life bar matches the
+// "Active" grid color so it reads as part of the same family by default.
+#define DEFAULT_BAR1_ARGB 0xE0       // orange
+#define DEFAULT_BAR2_ARGB 0xC3       // blue
+#define DEFAULT_BAR3_ARGB DEFAULT_FILLED_ARGB
+
+#define DEFAULT_BIRTH_YEAR 1990
+#define DEFAULT_BIRTH_MONTH 1
+#define DEFAULT_BIRTH_DAY 1
+#define DEFAULT_LIFE_EXPECTANCY_YEAR 2080
 
 // Candidate fonts for the in-block minute number, largest to smallest.
 // LECO fonts are digit-only and tabular (fixed digit width), which is exactly
@@ -81,14 +111,22 @@ static uint8_t s_is_pm;
 
 // Settings — loaded from persist at init, updated via AppMessage
 static uint8_t s_bg_argb, s_filled_argb, s_empty_argb;
-static uint8_t s_show_date, s_date_style;
 static uint8_t s_show_minutes_text;
 static uint8_t s_am_text_argb, s_am_border_argb, s_pm_text_argb, s_pm_border_argb;
+static uint8_t s_top_bar_style; // TOP_BAR_DAY_OF_MONTH or TOP_BAR_DAY_OF_YEAR
+static uint8_t s_bar1_argb, s_bar2_argb, s_bar3_argb;
+static int s_birth_year, s_birth_month, s_birth_day, s_life_expectancy_year;
+
+// Bar progress cache — permille (0..1000), recomputed once per day (or
+// whenever settings change) rather than on every minute tick, since none of
+// these metrics need finer-than-daily resolution.
+static int s_bar1_frac, s_bar2_frac, s_bar3_frac;
+static int s_bars_computed_for_mday = -1; // last tm_mday the cache was built for
 
 // Layout cache — computed once at window_load, never change for a given device
-static GFont s_font;
-static int s_radius, s_spacing, s_seg_w, s_seg_sp, s_bar_w, s_bar_h, s_font_h;
-static int s_grid_x, s_grid_y, s_bm, s_bar_y, s_text_y;
+static int s_radius, s_spacing;
+static int s_grid_x, s_grid_y;
+static GRect s_bar1_rect, s_bar2_rect, s_life_bar_rect;
 static GFont s_minutes_font;
 static int s_minutes_text_h;
 
@@ -99,11 +137,84 @@ static uint8_t rgb24_to_argb8(int32_t val) {
   return (uint8_t)((3 << 6) | ((r >> 6) << 4) | ((g >> 6) << 2) | (b >> 6));
 }
 
-static GColor contrasting_color(uint8_t bg_argb) {
-  int r = (bg_argb >> 4) & 0x3;
-  int g = (bg_argb >> 2) & 0x3;
-  int b = bg_argb & 0x3;
-  return (r * 30 + g * 59 + b * 11 >= 150) ? GColorBlack : GColorWhite;
+static int clampi(int v, int lo, int hi) {
+  return v < lo ? lo : (v > hi ? hi : v);
+}
+
+static int clamp_permille(int v) {
+  return clampi(v, 0, 1000);
+}
+
+// ── Calendar math (no floating point) ───────────────────────────────────────
+static const int DAYS_IN_MONTH[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+static bool is_leap_year(int year) {
+  return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+}
+
+static int days_in_month(int year, int month) { // month 1..12
+  if (month == 2 && is_leap_year(year)) return 29;
+  return DAYS_IN_MONTH[month - 1];
+}
+
+static int days_in_year(int year) {
+  return is_leap_year(year) ? 366 : 365;
+}
+
+static int day_of_year(int year, int month, int day) { // 1-based
+  int d = day;
+  for (int m = 1; m < month; m++) d += days_in_month(year, m);
+  return d;
+}
+
+// Day count from a fixed base year; only differences between two calls are
+// meaningful (used for age-in-days and lifespan-in-days).
+static int absolute_days(int year, int month, int day) {
+  int total = 0;
+  for (int y = 1900; y < year; y++) total += days_in_year(y);
+  return total + day_of_year(year, month, day);
+}
+
+// Recompute the three bar fractions from the current date + settings. Cheap,
+// but deliberately NOT called every minute — only at startup, once per day,
+// and right after the settings page saves a change.
+static void recompute_bars(void) {
+  time_t now = time(NULL);
+  struct tm *t = localtime(&now);
+  int year = t->tm_year + 1900;
+  int month = t->tm_mon + 1;
+  int day = t->tm_mday;
+
+  if (s_top_bar_style == TOP_BAR_DAY_OF_YEAR) {
+    s_bar1_frac = (day_of_year(year, month, day) - 1) * 1000 / days_in_year(year);
+  } else {
+    s_bar1_frac = (day - 1) * 1000 / days_in_month(year, month);
+  }
+
+  s_bar2_frac = (month - 1) * 1000 / 12;
+
+  int age_days = absolute_days(year, month, day) -
+                 absolute_days(s_birth_year, s_birth_month, s_birth_day);
+  int life_days = absolute_days(s_life_expectancy_year, s_birth_month, s_birth_day) -
+                   absolute_days(s_birth_year, s_birth_month, s_birth_day);
+  if (life_days < 1) life_days = 1;
+  s_bar3_frac = clamp_permille((age_days * 1000) / life_days);
+
+  s_bars_computed_for_mday = day;
+}
+
+// Fills `bar` with `empty`, then overlays the left `frac_permille/1000` of it
+// with `fill`. No rounding — flat edges stay crisp at an 8-10px bar height.
+static void fill_bar(GContext *ctx, GRect bar, int frac_permille, GColor fill, GColor empty) {
+  graphics_context_set_fill_color(ctx, empty);
+  graphics_fill_rect(ctx, bar, 0, GCornerNone);
+
+  int frac = clamp_permille(frac_permille);
+  int fill_w = (bar.size.w * frac) / 1000;
+  if (fill_w > 0) {
+    graphics_context_set_fill_color(ctx, fill);
+    graphics_fill_rect(ctx, GRect(bar.origin.x, bar.origin.y, fill_w, bar.size.h), 0, GCornerNone);
+  }
 }
 
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
@@ -179,23 +290,33 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     }
   }
 
-  // ── bottom row: date ───────────────────────────────────────────────────────
-  graphics_context_set_text_color(ctx, contrasting_color(s_bg_argb));
+  // ── bottom: three progress bars ─────────────────────────────────────────────
+  // Top-left: Day of Month or Day of Year (user's choice). Top-right: Month
+  // of Year (fixed). Bottom (full width): life remaining. Fractions are
+  // cached by recompute_bars() and only read here.
+  fill_bar(ctx, s_bar1_rect, s_bar1_frac, (GColor){.argb = s_bar1_argb}, empty);
+  fill_bar(ctx, s_bar2_rect, s_bar2_frac, (GColor){.argb = s_bar2_argb}, empty);
+  fill_bar(ctx, s_life_bar_rect, s_bar3_frac, (GColor){.argb = s_bar3_argb}, empty);
+}
 
-  if (s_show_date) {
-    char buf[16];
-    time_t now = time(NULL);
-    struct tm *t = localtime(&now);
-    static const char *fmts[] = { "%m/%d/%y", "%m/%d", "%d/%m/%y", "%d/%m" };
-    strftime(buf, sizeof(buf), fmts[s_date_style < 4 ? s_date_style : 0], t);
-    graphics_draw_text(ctx, buf, s_font,
-        GRect(s_bm, s_text_y, s_bar_w, s_font_h),
-        GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+// Decode an integer tuple at the width PebbleKit JS actually sent it in. JS
+// numbers arrive in the smallest signed type that fits (1/2/4 bytes), so
+// reading value->int32 unconditionally can pull in adjacent bytes whenever
+// fewer were sent — this mainly bites small values like a birth month or
+// the bar-style index. Colors are unaffected (RGB24 values always need the
+// full 4 bytes) but we route everything through here for consistency.
+static int32_t tuple_to_int(const Tuple *t) {
+  if (t->type == TUPLE_CSTRING) return atoi(t->value->cstring);
+  switch (t->length) {
+    case 1: return (t->type == TUPLE_UINT) ? t->value->uint8 : t->value->int8;
+    case 2: return (t->type == TUPLE_UINT) ? t->value->uint16 : t->value->int16;
+    default: return (t->type == TUPLE_UINT) ? (int32_t)t->value->uint32 : t->value->int32;
   }
 }
 
 static void inbox_received_handler(DictionaryIterator *iter, void *context) {
   Tuple *t;
+  bool date_settings_changed = false;
 
   t = dict_find(iter, MESSAGE_KEY_BG_COLOR);
   if (t) s_bg_argb = rgb24_to_argb8(t->value->int32);
@@ -205,15 +326,6 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
 
   t = dict_find(iter, MESSAGE_KEY_EMPTY_COLOR);
   if (t) s_empty_argb = rgb24_to_argb8(t->value->int32);
-
-  t = dict_find(iter, MESSAGE_KEY_SHOW_DATE);
-  if (t) s_show_date = (uint8_t)t->value->int32;
-
-  t = dict_find(iter, MESSAGE_KEY_DATE_STYLE);
-  if (t) {
-    uint8_t v = (t->type == TUPLE_CSTRING) ? (uint8_t)atoi(t->value->cstring) : (uint8_t)t->value->int32;
-    s_date_style = (v < 4) ? v : 0;
-  }
 
   t = dict_find(iter, MESSAGE_KEY_SHOW_MINUTES_TEXT);
   if (t) s_show_minutes_text = (uint8_t)t->value->int32;
@@ -229,7 +341,38 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
 
   t = dict_find(iter, MESSAGE_KEY_PM_BORDER_COLOR);
   if (t) s_pm_border_argb = rgb24_to_argb8(t->value->int32);
-  
+
+  t = dict_find(iter, MESSAGE_KEY_TOP_BAR_STYLE);
+  if (t) {
+    s_top_bar_style = (tuple_to_int(t) == TOP_BAR_DAY_OF_YEAR) ? TOP_BAR_DAY_OF_YEAR : TOP_BAR_DAY_OF_MONTH;
+    date_settings_changed = true;
+  }
+
+  t = dict_find(iter, MESSAGE_KEY_BAR1_COLOR);
+  if (t) s_bar1_argb = rgb24_to_argb8(t->value->int32);
+
+  t = dict_find(iter, MESSAGE_KEY_BAR2_COLOR);
+  if (t) s_bar2_argb = rgb24_to_argb8(t->value->int32);
+
+  t = dict_find(iter, MESSAGE_KEY_BAR3_COLOR);
+  if (t) s_bar3_argb = rgb24_to_argb8(t->value->int32);
+
+  t = dict_find(iter, MESSAGE_KEY_BIRTH_YEAR);
+  if (t) { s_birth_year = clampi(tuple_to_int(t), 1900, 2150); date_settings_changed = true; }
+
+  t = dict_find(iter, MESSAGE_KEY_BIRTH_MONTH);
+  if (t) { s_birth_month = clampi(tuple_to_int(t), 1, 12); date_settings_changed = true; }
+
+  t = dict_find(iter, MESSAGE_KEY_BIRTH_DAY);
+  if (t) { s_birth_day = clampi(tuple_to_int(t), 1, 31); date_settings_changed = true; }
+
+  t = dict_find(iter, MESSAGE_KEY_LIFE_EXPECTANCY_YEAR);
+  if (t) { s_life_expectancy_year = clampi(tuple_to_int(t), 1900, 2150); date_settings_changed = true; }
+
+  // The bar metrics only need recomputing when something that feeds them
+  // changed — not on every settings save (e.g. a pure color tweak).
+  if (date_settings_changed) recompute_bars();
+
   layer_mark_dirty(s_canvas_layer);
 }
 
@@ -237,6 +380,15 @@ static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   s_hours = tick_time->tm_hour % 12;
   s_minutes = tick_time->tm_min;
   s_is_pm = (tick_time->tm_hour >= 12) ? 1 : 0;
+
+  // Day-granularity metrics only need recomputing once the day actually
+  // rolls over — comparing the cached day-of-month is a cheap, foolproof way
+  // to catch that without depending on exactly which TimeUnits flags a given
+  // firmware reports alongside a minute tick.
+  if (tick_time->tm_mday != s_bars_computed_for_mday) {
+    recompute_bars();
+  }
+
   layer_mark_dirty(s_canvas_layer);
 }
 
@@ -274,25 +426,27 @@ static void window_load(Window *window) {
   // Compute all layout constants once — never recalculated while the watch runs
   s_radius = emery ? 19 : 12;
   s_spacing = emery ? 48 : 32;
-  s_bar_h = emery ? 18 : 14;
-  int bar_gap = s_spacing - 2 * s_radius;
-  s_font_h = emery ? 22 : 18;
+  int bar_gap = s_spacing - 2 * s_radius;   // vertical breathing room, scaled to platform
+  int bar_h = emery ? 10 : 8;               // progress bar thickness
+  int bar_sub_gap = emery ? 8 : 6;          // gap between the two top bars
 
   int grid_w = (GRID_COLS - 1) * s_spacing + s_radius * 2;
   s_grid_x = (w - grid_w) / 2 - 1 + s_radius;
+  int grid_left = s_grid_x - s_radius; // left edge the bars line up with
 
-  s_seg_w = emery ? 2 : 1;
-  s_seg_sp = s_seg_w + 1;
-  s_bar_w = 60 * s_seg_sp;
-  s_bm = (w - s_bar_w) / 2 - 1;
-
-  int total_h = (GRID_ROWS - 1) * s_spacing + 2 * s_radius + bar_gap + s_bar_h + bar_gap / 2 + s_font_h;
+  int total_h = (GRID_ROWS - 1) * s_spacing + 2 * s_radius // grid
+              + bar_gap + bar_h                            // gap + top bar row
+              + bar_gap / 2 + bar_h;                        // gap + life bar row
   s_grid_y = (h - total_h) / 2 + s_radius + 2;
-  s_bar_y = s_grid_y + (GRID_ROWS - 1) * s_spacing + s_radius + bar_gap;
-  s_text_y = s_bar_y + s_bar_h + bar_gap / 2 + 2;
 
-  s_font = emery ? fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD)
-                 : fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);
+  int top_bars_y = s_grid_y + (GRID_ROWS - 1) * s_spacing + s_radius + bar_gap;
+  int life_bar_y = top_bars_y + bar_h + bar_gap / 2;
+
+  int bar1_w = (grid_w - bar_sub_gap) / 2;
+  s_bar1_rect = GRect(grid_left, top_bars_y, bar1_w, bar_h);
+  s_bar2_rect = GRect(grid_left + bar1_w + bar_sub_gap, top_bars_y,
+                       grid_w - bar1_w - bar_sub_gap, bar_h); // absorbs rounding remainder
+  s_life_bar_rect = GRect(grid_left, life_bar_y, grid_w, bar_h);
 
   // Largest minute-number font that fits inside one grid block without
   // crossing its rounded border.
@@ -315,18 +469,28 @@ static void window_unload(Window *window) {
 
 #define persist_read_or(key, def) \
   (persist_exists(key) ? (uint8_t)persist_read_int(key) : (uint8_t)(def))
+#define persist_read_int_or(key, def) \
+  (persist_exists(key) ? persist_read_int(key) : (int)(def))
 
 static void init(void) {
   s_bg_argb = persist_read_or(PERSIST_KEY_BG, DEFAULT_BG_ARGB);
   s_filled_argb = persist_read_or(PERSIST_KEY_FILLED, DEFAULT_FILLED_ARGB);
   s_empty_argb = persist_read_or(PERSIST_KEY_EMPTY, DEFAULT_EMPTY_ARGB);
-  s_show_date = persist_read_or(PERSIST_KEY_SHOW_DATE, 1);
-  s_date_style = persist_read_or(PERSIST_KEY_DATE_STYLE, 0);
   s_show_minutes_text = persist_read_or(PERSIST_KEY_SHOW_MINUTES_TEXT, 1);
   s_am_text_argb = persist_read_or(PERSIST_KEY_AM_TEXT_COLOR, DEFAULT_AM_TEXT_ARGB);
   s_am_border_argb = persist_read_or(PERSIST_KEY_AM_BORDER_COLOR, DEFAULT_AM_BORDER_ARGB);
   s_pm_text_argb = persist_read_or(PERSIST_KEY_PM_TEXT_COLOR, DEFAULT_PM_TEXT_ARGB);
   s_pm_border_argb = persist_read_or(PERSIST_KEY_PM_BORDER_COLOR, DEFAULT_PM_BORDER_ARGB);
+  s_top_bar_style = persist_read_or(PERSIST_KEY_TOP_BAR_STYLE, TOP_BAR_DAY_OF_MONTH);
+  s_bar1_argb = persist_read_or(PERSIST_KEY_BAR1_COLOR, DEFAULT_BAR1_ARGB);
+  s_bar2_argb = persist_read_or(PERSIST_KEY_BAR2_COLOR, DEFAULT_BAR2_ARGB);
+  s_bar3_argb = persist_read_or(PERSIST_KEY_BAR3_COLOR, DEFAULT_BAR3_ARGB);
+  s_birth_year = persist_read_int_or(PERSIST_KEY_BIRTH_YEAR, DEFAULT_BIRTH_YEAR);
+  s_birth_month = persist_read_int_or(PERSIST_KEY_BIRTH_MONTH, DEFAULT_BIRTH_MONTH);
+  s_birth_day = persist_read_int_or(PERSIST_KEY_BIRTH_DAY, DEFAULT_BIRTH_DAY);
+  s_life_expectancy_year = persist_read_int_or(PERSIST_KEY_LIFE_EXPECTANCY_YEAR, DEFAULT_LIFE_EXPECTANCY_YEAR);
+
+  recompute_bars();
 
   s_window = window_create();
   window_set_window_handlers(s_window, (WindowHandlers){
@@ -337,20 +501,26 @@ static void init(void) {
 
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
   app_message_register_inbox_received(inbox_received_handler);
-  app_message_open(256, 256);
+  app_message_open(512, 64);
 }
 
 static void deinit(void) {
   persist_write_int(PERSIST_KEY_BG, s_bg_argb);
   persist_write_int(PERSIST_KEY_FILLED, s_filled_argb);
   persist_write_int(PERSIST_KEY_EMPTY, s_empty_argb);
-  persist_write_int(PERSIST_KEY_SHOW_DATE, s_show_date);
-  persist_write_int(PERSIST_KEY_DATE_STYLE, s_date_style);
   persist_write_int(PERSIST_KEY_SHOW_MINUTES_TEXT, s_show_minutes_text);
   persist_write_int(PERSIST_KEY_AM_TEXT_COLOR, s_am_text_argb);
   persist_write_int(PERSIST_KEY_AM_BORDER_COLOR, s_am_border_argb);
   persist_write_int(PERSIST_KEY_PM_TEXT_COLOR, s_pm_text_argb);
   persist_write_int(PERSIST_KEY_PM_BORDER_COLOR, s_pm_border_argb);
+  persist_write_int(PERSIST_KEY_TOP_BAR_STYLE, s_top_bar_style);
+  persist_write_int(PERSIST_KEY_BAR1_COLOR, s_bar1_argb);
+  persist_write_int(PERSIST_KEY_BAR2_COLOR, s_bar2_argb);
+  persist_write_int(PERSIST_KEY_BAR3_COLOR, s_bar3_argb);
+  persist_write_int(PERSIST_KEY_BIRTH_YEAR, s_birth_year);
+  persist_write_int(PERSIST_KEY_BIRTH_MONTH, s_birth_month);
+  persist_write_int(PERSIST_KEY_BIRTH_DAY, s_birth_day);
+  persist_write_int(PERSIST_KEY_LIFE_EXPECTANCY_YEAR, s_life_expectancy_year);
 
   tick_timer_service_unsubscribe();
   window_destroy(s_window);

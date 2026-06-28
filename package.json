@@ -14,13 +14,19 @@
             "BG_COLOR",
             "FILLED_COLOR",
             "EMPTY_COLOR",
-            "SHOW_DATE",
-            "DATE_STYLE",
             "SHOW_MINUTES_TEXT",
             "AM_TEXT_COLOR",
             "AM_BORDER_COLOR",
             "PM_TEXT_COLOR",
-            "PM_BORDER_COLOR"
+            "PM_BORDER_COLOR",
+            "BAR1_COLOR",
+            "BAR2_COLOR",
+            "BAR3_COLOR",
+            "BIRTH_YEAR",
+            "BIRTH_MONTH",
+            "BIRTH_DAY",
+            "LIFE_EXPECTANCY_YEAR",
+            "TOP_BAR_STYLE"
         ],
         "projectType": "native",
         "resources": {

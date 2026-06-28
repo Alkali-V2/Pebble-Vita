@@ -34,30 +34,10 @@ module.exports = [
   },
   {
     "type": "toggle",
-    "messageKey": "SHOW_DATE",
-    "label": "Show Date (bottom left)",
-    "defaultValue": true
-  },
-  {
-    "type": "select",
-    "messageKey": "DATE_STYLE",
-    "label": "Date Format",
-    "defaultValue": "0",
-    "options": [
-      { "label": "MM/DD/YY", "value": "0" },
-      { "label": "MM/DD",    "value": "1" },
-      { "label": "DD/MM/YY", "value": "2" },
-      { "label": "DD/MM",    "value": "3" }
-    ]
-  },
-
-  {
-    "type": "toggle",
     "messageKey": "SHOW_MINUTES_TEXT",
     "label": "Show Minute Number",
     "defaultValue": true
   },
-  
   {
     "type": "color",
     "allowGray": true,
@@ -86,7 +66,86 @@ module.exports = [
     "label": "PM Minute Border",
     "defaultValue": "FFFFFF"
   },
-  
+
+  // ── Progress Bars ────────────────────────────────────────────────────────────
+  {
+    "type": "heading",
+    "defaultValue": "Progress Bars"
+  },
+  {
+    "type": "text",
+    "defaultValue": "Two small bars sit above one long bar at the bottom of the face."
+  },
+  {
+    "type": "select",
+    "messageKey": "TOP_BAR_STYLE",
+    "label": "Top-Left Bar Shows",
+    "defaultValue": "0",
+    "options": [
+      { "label": "Day of Month", "value": "0" },
+      { "label": "Day of Year",  "value": "1" }
+    ]
+  },
+  {
+    "type": "color",
+    "allowGray": true,
+    "messageKey": "BAR1_COLOR",
+    "label": "Day Bar Color (top-left)",
+    "defaultValue": "FFAA00"
+  },
+  {
+    "type": "color",
+    "allowGray": true,
+    "messageKey": "BAR2_COLOR",
+    "label": "Month Bar Color (top-right)",
+    "defaultValue": "0000FF"
+  },
+  {
+    "type": "color",
+    "allowGray": true,
+    "messageKey": "BAR3_COLOR",
+    "label": "Life Bar Color (bottom)",
+    "defaultValue": "555555"
+  },
+
+  // ── Life Progress ────────────────────────────────────────────────────────────
+  {
+    "type": "heading",
+    "defaultValue": "Life Progress"
+  },
+  {
+    "type": "text",
+    "defaultValue": "The bottom bar fills from your birthday toward the year you enter below."
+  },
+  {
+    "type": "input",
+    "messageKey": "BIRTH_YEAR",
+    "label": "Birth Year",
+    "attributes": { "type": "number", "min": 1900, "max": 2150 },
+    "defaultValue": "1990"
+  },
+  {
+    "type": "input",
+    "messageKey": "BIRTH_MONTH",
+    "label": "Birth Month (1-12)",
+    "attributes": { "type": "number", "min": 1, "max": 12 },
+    "defaultValue": "1"
+  },
+  {
+    "type": "input",
+    "messageKey": "BIRTH_DAY",
+    "label": "Birth Day (1-31)",
+    "attributes": { "type": "number", "min": 1, "max": 31 },
+    "defaultValue": "1"
+  },
+  {
+    "type": "input",
+    "messageKey": "LIFE_EXPECTANCY_YEAR",
+    "label": "Live Until Year",
+    "attributes": { "type": "number", "min": 1900, "max": 2150 },
+    "defaultValue": "2080"
+  },
+
   {
     "type": "submit",
     "defaultValue": "Save Settings"
