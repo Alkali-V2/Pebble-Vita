@@ -68,30 +68,32 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     graphics_fill_rect(ctx, layer_get_bounds(layer), 0, GCornerNone);
 
     // ── hours grid ────────────────────────────────────────────────────────────
-    graphics_context_set_fill_color(ctx, filled);
-    for (int row = 0; row < GRID_ROWS; row++)
-        for (int col = 0; col < GRID_COLS; col++)
-            if (col * GRID_ROWS + row + 1 <= s_hours)
-                graphics_fill_circle(ctx, GPoint(s_grid_x + col * s_spacing, s_grid_y + row * s_spacing), s_radius);
-    graphics_context_set_fill_color(ctx, empty);
-    for (int row = 0; row < GRID_ROWS; row++)
-        for (int col = 0; col < GRID_COLS; col++)
-            if (col * GRID_ROWS + row + 1 > s_hours)
-                graphics_fill_circle(ctx, GPoint(s_grid_x + col * s_spacing, s_grid_y + row * s_spacing), s_radius);
-
-    // ── minutes bar ───────────────────────────────────────────────────────────
-    graphics_context_set_fill_color(ctx, filled);
-    for (int i = 0; i < s_minutes; i++)
-        graphics_fill_rect(ctx, GRect(s_bm + i * s_seg_sp, s_bar_y, s_seg_w, s_bar_h), 0, GCornerNone);
-    graphics_context_set_fill_color(ctx, empty);
-    for (int i = s_minutes; i < 60; i++)
-        graphics_fill_rect(ctx, GRect(s_bm + i * s_seg_sp, s_bar_y, s_seg_w, s_bar_h), 0, GCornerNone);
-
-    // 10-minute tick marks
-    graphics_context_set_fill_color(ctx, filled);
-    for (int i = 0; i <= 60; i += 10) {
-        int pos = (i == 60) ? 59 : i;
-        graphics_fill_rect(ctx, GRect(s_bm + pos * s_seg_sp, s_bar_y + s_bar_h + 1, s_seg_w, 2), 0, GCornerNone);
+    int partial_index = s_hours + 1;
+    
+    for(int row = 0; row < GRID_ROWS; row++) {
+      for(int col = 0; col < GRID_COLS; col++) {
+        int index = col * GRID_ROWS + row + 1;
+        int cx = s_grid_x + col * s_spacing;
+        int cy = s_grid_y + row * s_spacing;
+        GRect block = GRect(cx - s_radius, cy - s_radius, s_radius * 2, s_radius * 2);
+        
+        if(index < partial_index) {
+          //fully elapsed hour
+          graphics_context_set_fill_color(ctx, filled);
+          graphics_fill_rect(ctx, block, 4, GCornersAll);
+        } else if (index == partial_index && index <= GRID_COLS * GRID_ROWS) {
+          //Progressively filling minutes cell
+          int fill_h = (block.size.h * s_minutes) / 60;
+          graphics_context_set_fill_color(ctx, empty);
+          graphics_fill_rect(ctx, block, 4, GCornersAll);
+          graphics_context_set_fill_color(ctx, filled);
+          graphics_fill_rect(ctx, GRect(block.origin.x, block.origin.y, block.size.w, fill_h), 4, GCornerTopLeft | GCornerTopRight);
+        } else {
+          //not reached yet
+          graphics_context_set_fill_color(ctx, empty);
+          graphics_fill_rect(ctx, block, 4, GCornersAll);
+        }
+      }
     }
 
     // ── bottom row: date left, AM/PM right ────────────────────────────────────
@@ -146,7 +148,6 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
 
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
     s_hours   = tick_time->tm_hour % 12;
-    if (s_hours == 0) s_hours = 12;
     s_minutes = tick_time->tm_min;
     s_is_pm   = (tick_time->tm_hour >= 12) ? 1 : 0;
     layer_mark_dirty(s_canvas_layer);
@@ -160,7 +161,7 @@ static void window_load(Window *window) {
     bool emery = (w >= 180);
 
     // Compute all layout constants once — never recalculated while the watch runs
-    s_radius  = emery ? 13 : 8;
+    s_radius  = emery ? 19 : 12;
     s_spacing = emery ? 48 : 32;
     s_bar_h   = emery ? 18 : 14;
     int bar_gap = s_spacing - 2 * s_radius;
@@ -203,7 +204,6 @@ static void window_load(Window *window) {
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
     s_hours   = t->tm_hour % 12;
-    if (s_hours == 0) s_hours = 12;
     s_minutes = t->tm_min;
     s_is_pm   = (t->tm_hour >= 12) ? 1 : 0;
 }
