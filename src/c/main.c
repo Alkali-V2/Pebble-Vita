@@ -74,7 +74,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
             if (col * GRID_ROWS + row + 1 <= s_hours) {
                 int cx = s_grid_x + col * s_spacing;
                 int cy = s_grid_y + row * s_spacing;
-                graphics_fill_rect(ctx, GRect(cx - s_radius, cy - s_radius, s_radius * 2, s_radius * 2), 0, GCornerNone);
+                graphics_fill_rect(ctx, GRect(cx - s_radius, cy - s_radius, s_radius * 2, s_radius * 2), 2, GCornersAll);
             }
                 
     graphics_context_set_fill_color(ctx, empty);
@@ -83,7 +83,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
             if (col * GRID_ROWS + row + 1 > s_hours) {
                 int cx = s_grid_x + col * s_spacing;
                 int cy = s_grid_y + row * s_spacing;
-                graphics_fill_rect(ctx, GRect(cx - s_radius, cy - s_radius, s_radius * 2, s_radius * 2), 0, GCornerNone);
+                graphics_fill_rect(ctx, GRect(cx - s_radius, cy - s_radius, s_radius * 2, s_radius * 2), 2, GCornersAll);
             }
 
     // ── minutes bar ───────────────────────────────────────────────────────────
@@ -167,7 +167,7 @@ static void window_load(Window *window) {
     bool emery = (w >= 180);
 
     // Compute all layout constants once — never recalculated while the watch runs
-    s_radius  = emery ? 13 : 8;
+    s_radius  = emery ? 19 : 12;
     s_spacing = emery ? 48 : 32;
     s_bar_h   = emery ? 18 : 14;
     int bar_gap = s_spacing - 2 * s_radius;
