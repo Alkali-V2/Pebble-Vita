@@ -1,14 +1,14 @@
 {
-  "name": "pnooka",
-  "author": "Ryan Cady",
-  "version": "1.2.4",
+  "name": "Vita",
+  "author": "Alkali-V2",
+  "version": "1.0.0",
   "keywords": ["pebble-app"],
   "private": true,
   "dependencies": {
     "pebble-clay": "*"
   },
   "pebble": {
-    "displayName": "PNOOKA",
+    "displayName": "VITA",
     "uuid": "cd4a652b-865b-4b29-9c2b-a612673fa85e",
     "sdkVersion": "3",
     "enableMultiJS": true,
