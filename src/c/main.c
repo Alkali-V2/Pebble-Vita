@@ -85,7 +85,6 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
                 int cy = s_grid_y + row * s_spacing;
                 graphics_fill_rect(ctx, GRect(cx - s_radius, cy - s_radius, s_radius * 2, s_radius * 2), 0, GCornerNone);
             }
-                graphics_fill_circle(ctx, GPoint(s_grid_x + col * s_spacing, s_grid_y + row * s_spacing), s_radius);
 
     // ── minutes bar ───────────────────────────────────────────────────────────
     graphics_context_set_fill_color(ctx, filled);
