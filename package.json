@@ -15,7 +15,12 @@
             "FILLED_COLOR",
             "EMPTY_COLOR",
             "SHOW_DATE",
-            "DATE_STYLE"
+            "DATE_STYLE",
+            "SHOW_MINUTES_TEXT",
+            "AM_TEXT_COLOR",
+            "AM_BORDER_COLOR",
+            "PM_TEXT_COLOR",
+            "PM_BORDER_COLOR"
         ],
         "projectType": "native",
         "resources": {
@@ -23,12 +28,12 @@
         },
         "sdkVersion": "3",
         "targetPlatforms": [
-            "basalt",
-            "emery",
             "aplite",
-            "diorite"
+            "basalt",
+            "diorite",
+            "emery"
         ],
-        "uuid": "cd4a652b-865b-4b29-9c2b-a612673fa85e",
+        "uuid": "fc173306-597f-4d0f-aa78-5728695ffeab",
         "watchapp": {
             "watchface": true
         }
