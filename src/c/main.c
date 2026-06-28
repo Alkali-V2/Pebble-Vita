@@ -40,6 +40,14 @@ static const char * const s_minutes_font_keys[] = {
     FONT_KEY_GOTHIC_18_BOLD,
     FONT_KEY_GOTHIC_14_BOLD,
 };
+
+// 8 directions to nudge the outline draws — N, S, E, W, and diagonals for AM/PM Text
+static const GPoint s_outline_offsets[8] = {
+  {-1, -1}, {0, -1}, {1, -1},
+  {-1,  0},           {1,  0},
+  {-1,  1}, {0,  1}, {1,  1},
+};
+
 #define MINUTES_FONT_COUNT (sizeof(s_minutes_font_keys) / sizeof(s_minutes_font_keys[0]))
 
 // Padding (px) kept clear inside each block's edge so the glyph never crosses
@@ -115,22 +123,43 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         graphics_context_set_fill_color(ctx, empty);
         graphics_fill_rect(ctx, block, 4, GCornersAll);
         graphics_context_set_fill_color(ctx, filled);
-        graphics_fill_rect(ctx, GRect(block.origin.x, block.origin.y, block.size.w, fill_h), 4, GCornerTopLeft | GCornerTopRight);
+        int overlay_radius = (fill_h < 4) ? fill_h : 4;
+        graphics_fill_rect(ctx, GRect(block.origin.x, block.origin.y, block.size.w, fill_h), overlay_radius, GCornerTopLeft | GCornerTopRight);
 
+        // Restore the block's correctly-rounded bottom corners in case the
+        // filled overlay's square bottom edge has crept into that curve zone.
+        int bottom_empty_h = block.size.h - fill_h;
+        if (bottom_empty_h > 0) {
+          int patch_h = (bottom_empty_h < 4) ? bottom_empty_h : 4;
+          graphics_context_set_fill_color(ctx, empty);
+          graphics_fill_rect(ctx,
+              GRect(block.origin.x, block.origin.y + block.size.h - patch_h, block.size.w, patch_h),
+              patch_h, GCornerBottomLeft | GCornerBottomRight);
+        }
+        
         if (s_show_minutes_text) {
           char mbuf[3];
           snprintf(mbuf, sizeof(mbuf), "%02d", s_minutes);
 
-          // Text sits at the vertical center of the block. Whichever color
-          // (filled/empty) covers that center point is what we contrast against.
-          GColor txt_color = contrasting_color(s_minutes >= 30 ? s_filled_argb : s_empty_argb);
-          graphics_context_set_text_color(ctx, txt_color);
+          // AM = light fill / dark outline, PM = dark fill / light outline —
+          // the number itself now encodes AM/PM regardless of what's behind it.
+          GColor fill_color = s_is_pm ? GColorBlack : GColorWhite;
+          GColor outline_color = s_is_pm ? GColorWhite : GColorBlack;
 
           int ty = block.origin.y + (block.size.h - s_minutes_text_h) / 2 + MINUTES_TEXT_Y_FUDGE;
-          graphics_draw_text(ctx, mbuf, s_minutes_font,
-              GRect(block.origin.x, ty, block.size.w, s_minutes_text_h + 4),
-              GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+          GRect text_box = GRect(block.origin.x, ty, block.size.w, s_minutes_text_h + 4);
+
+          graphics_context_set_text_color(ctx, outline_color);
+          for (int i = 0; i < 8; i++) {
+            GRect ob = text_box;
+            ob.origin.x += s_outline_offsets[i].x;
+            ob.origin.y += s_outline_offsets[i].y;
+            graphics_draw_text(ctx, mbuf, s_minutes_font, ob, GTextOverflowModeFill, GTextAlignmentCenter, NULL);
         }
+          
+          graphics_context_set_text_color(ctx, fill_color);
+          graphics_draw_text(ctx, mbuf, s_minutes_font, text_box, GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+        } 
       } else {
         //not reached yet
         graphics_context_set_fill_color(ctx, empty);
