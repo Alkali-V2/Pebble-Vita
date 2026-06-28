@@ -147,7 +147,7 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
 }
 
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
-    if (s_hours == 0) s_hours = 12;
+    s_hours   = tick_time->tm_hour % 12;
     s_minutes = tick_time->tm_min;
     s_is_pm   = (tick_time->tm_hour >= 12) ? 1 : 0;
     layer_mark_dirty(s_canvas_layer);
@@ -203,7 +203,7 @@ static void window_load(Window *window) {
 
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
-    if (s_hours == 0) s_hours = 12;
+    s_hours   = t->tm_hour % 12;
     s_minutes = t->tm_min;
     s_is_pm   = (t->tm_hour >= 12) ? 1 : 0;
 }
