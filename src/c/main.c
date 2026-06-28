@@ -68,23 +68,33 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     graphics_fill_rect(ctx, layer_get_bounds(layer), 0, GCornerNone);
 
     // ── hours grid ────────────────────────────────────────────────────────────
-    graphics_context_set_fill_color(ctx, filled);
-    for (int row = 0; row < GRID_ROWS; row++)
-        for (int col = 0; col < GRID_COLS; col++)
-            if (col * GRID_ROWS + row + 1 <= s_hours) {
-                int cx = s_grid_x + col * s_spacing;
-                int cy = s_grid_y + row * s_spacing;
-                graphics_fill_rect(ctx, GRect(cx - s_radius, cy - s_radius, s_radius * 2, s_radius * 2), 2, GCornersAll);
-            }
-                
-    graphics_context_set_fill_color(ctx, empty);
-    for (int row = 0; row < GRID_ROWS; row++)
-        for (int col = 0; col < GRID_COLS; col++)
-            if (col * GRID_ROWS + row + 1 > s_hours) {
-                int cx = s_grid_x + col * s_spacing;
-                int cy = s_grid_y + row * s_spacing;
-                graphics_fill_rect(ctx, GRect(cx - s_radius, cy - s_radius, s_radius * 2, s_radius * 2), 2, GCornersAll);
-            }
+    int partial_index = s_hours + 1;
+    
+    for(int row = 0; row < GRID_ROWS; row++) {
+      for(int col = 0; col < GRID_COLS; col++) {
+        int index = col * GRID_ROWS + row + 1;
+        int cx = s_grid_x + col * s_spacing;
+        int cy = s_grid_y + row * s_spacing;
+        GRect block = GRect(cx - s_radius, cy - s_radius, s_radius * 2, s_radius * 2);
+        
+        if(index < partial_index) {
+          //fully elapsed hour
+          graphics_context_set_fill_color(ctx, filled);
+          graphics_fill_rect(ctx, block, 0, GCornerNone);
+        } else if (index == partial_index && index <= GRID_COLS * GRID_ROWS) {
+          //Progressively filling minutes cell
+          int fill_h = (block.size.h * s_minutes) / 60;
+          graphics_context_set_fill_color(ctx, empty);
+          graphics_fill_rect(ctx, block, 0, GCornerNone);
+          graphics_context_set_fill_color(ctx, filled);
+          graphics_fill_rect(ctx, GRect(block.origin.x, block.origin.y, block.size.w, fill_h), 0, GCornerNone);
+        } else {
+          //not reached yet
+          graphics_context_set_fill_color(ctx, empty);
+          graphics_fill_rect(ctx, block, 0, GCornerNone);
+        }
+      }
+    }
 
     // ── bottom row: date left, AM/PM right ────────────────────────────────────
     graphics_context_set_text_color(ctx, contrasting_color(s_bg_argb));
