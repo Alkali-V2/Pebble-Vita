@@ -89,9 +89,6 @@ static uint8_t s_am_text_argb, s_am_border_argb, s_pm_text_argb, s_pm_border_arg
 static GFont s_font;
 static int s_radius, s_spacing, s_seg_w, s_seg_sp, s_bar_w, s_bar_h, s_font_h;
 static int s_grid_x, s_grid_y, s_bm, s_bar_y, s_text_y;
-static int s_dot_r, s_dot_cy;
-static int s_am_lx, s_am_dot_x, s_am_sz_w;
-static int s_pm_lx, s_pm_dot_x, s_pm_sz_w;
 static GFont s_minutes_font;
 static int s_minutes_text_h;
 
@@ -182,7 +179,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     }
   }
 
-  // ── bottom row: date left, AM/PM right ────────────────────────────────────
+  // ── bottom row: date ───────────────────────────────────────────────────────
   graphics_context_set_text_color(ctx, contrasting_color(s_bg_argb));
 
   if (s_show_date) {
@@ -195,17 +192,6 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         GRect(s_bm, s_text_y, s_bar_w, s_font_h),
         GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
   }
-
-  // AM/PM — right-aligned, layout (right to left): [AM][●] [PM][●] | bm+bar_w
-  graphics_draw_text(ctx, "AM", s_font,
-      GRect(s_am_lx, s_text_y, s_am_sz_w + 2, s_font_h), GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
-  graphics_context_set_fill_color(ctx, s_is_pm ? empty : filled);
-  graphics_fill_circle(ctx, GPoint(s_am_dot_x, s_dot_cy), s_dot_r);
-
-  graphics_draw_text(ctx, "PM", s_font,
-      GRect(s_pm_lx, s_text_y, s_pm_sz_w + 2, s_font_h), GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
-  graphics_context_set_fill_color(ctx, s_is_pm ? filled : empty);
-  graphics_fill_circle(ctx, GPoint(s_pm_dot_x, s_dot_cy), s_dot_r);
 }
 
 static void inbox_received_handler(DictionaryIterator *iter, void *context) {
@@ -311,21 +297,6 @@ static void window_load(Window *window) {
   // Largest minute-number font that fits inside one grid block without
   // crossing its rounded border.
   pick_minutes_font(s_radius * 2);
-
-  s_dot_r = emery ? 4 : 3;
-  s_dot_cy = s_text_y + s_font_h / 2;
-
-  GSize am_sz = graphics_text_layout_get_content_size(
-      "AM", s_font, GRect(0, 0, s_bar_w / 2, s_font_h), GTextOverflowModeWordWrap, GTextAlignmentLeft);
-  GSize pm_sz = graphics_text_layout_get_content_size(
-      "PM", s_font, GRect(0, 0, s_bar_w / 2, s_font_h), GTextOverflowModeWordWrap, GTextAlignmentLeft);
-  s_am_sz_w = am_sz.w;
-  s_pm_sz_w = pm_sz.w;
-
-  s_pm_dot_x = s_bm + s_bar_w - s_dot_r;
-  s_pm_lx = s_pm_dot_x - s_dot_r - 3 - s_pm_sz_w;
-  s_am_dot_x = s_pm_lx - 5 - s_dot_r;
-  s_am_lx = s_am_dot_x - s_dot_r - 3 - s_am_sz_w;
 
   s_canvas_layer = layer_create(bounds);
   layer_set_update_proc(s_canvas_layer, canvas_update_proc);
