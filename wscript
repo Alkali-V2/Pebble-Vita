@@ -15,7 +15,7 @@ def options(ctx):
 
 def configure(ctx):
     ctx.load('pebble_sdk')
-    ctx.env.BUNDLE_NAME = 'pnooka.pbw'
+    ctx.env.BUNDLE_NAME = 'vita.pbw'
 
 
 def build(ctx):
