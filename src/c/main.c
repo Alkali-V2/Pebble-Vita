@@ -19,6 +19,7 @@ extern uint32_t MESSAGE_KEY_LIFE_EXPECTANCY_YEAR;
 extern uint32_t MESSAGE_KEY_SHOW_BAR1_TEXT;
 extern uint32_t MESSAGE_KEY_SHOW_BAR2_TEXT;
 extern uint32_t MESSAGE_KEY_SHOW_LIFE_BAR_TEXT;
+extern uint32_t MESSAGE_KEY_BAR_ORDER;
 
 #define GRID_COLS 4
 #define GRID_ROWS 3
@@ -26,6 +27,12 @@ extern uint32_t MESSAGE_KEY_SHOW_LIFE_BAR_TEXT;
 // Top-left bar metric choices (MESSAGE_KEY_TOP_BAR_STYLE / s_top_bar_style)
 #define TOP_BAR_DAY_OF_MONTH 0
 #define TOP_BAR_DAY_OF_YEAR 1
+
+// Which physical slot (left vs right) the Day vs Month bar renders into
+// (MESSAGE_KEY_BAR_ORDER / s_bar_order). Doesn't touch which fraction/text/
+// color belongs to "Day" or "Month" — just where on screen each lands.
+#define BAR_ORDER_DAY_FIRST 0
+#define BAR_ORDER_MONTH_FIRST 1
 
 #define PERSIST_KEY_BG 1
 #define PERSIST_KEY_FILLED 2
@@ -49,6 +56,7 @@ extern uint32_t MESSAGE_KEY_SHOW_LIFE_BAR_TEXT;
 #define PERSIST_KEY_SHOW_BAR1_TEXT 19
 #define PERSIST_KEY_SHOW_LIFE_BAR_TEXT 20
 #define PERSIST_KEY_SHOW_BAR2_TEXT 21
+#define PERSIST_KEY_BAR_ORDER 22
 
 #define DEFAULT_AM_TEXT_ARGB 0xFF   // white
 #define DEFAULT_AM_BORDER_ARGB 0xC0 // black
@@ -131,11 +139,13 @@ static uint8_t s_top_bar_style; // TOP_BAR_DAY_OF_MONTH or TOP_BAR_DAY_OF_YEAR
 static uint8_t s_bar1_argb, s_bar2_argb, s_bar3_argb;
 static int s_birth_year, s_birth_month, s_birth_day, s_life_expectancy_year;
 static uint8_t s_show_bar1_text, s_show_bar2_text, s_show_life_bar_text;
+static uint8_t s_top_bar_style; // TOP_BAR_DAY_OF_MONTH or TOP_BAR_DAY_OF_YEAR
+static uint8_t s_bar_order;     // BAR_ORDER_DAY_FIRST or BAR_ORDER_MONTH_FIRST
 
 // Text shown inside bar1 ("28" / "179") and the life bar ("40/80"),
 // refreshed by recompute_bars() alongside the fractions they label.
 static char s_bar1_text[8];
-static char s_bar2_text[4];
+static char s_bar2_text[12];
 static char s_life_bar_text[16];
 
 // Bar progress cache — permille (0..1000), recomputed once per day (or
@@ -245,7 +255,11 @@ static void recompute_bars(void) {
   // Life bar's number is a simple whole-years reading — current age over
   // total expected lifespan — separate from the day-accurate fill fraction
   // above. Clamped so a birth year typo can't print something nonsensical.
-  int age_years = clampi(year - s_birth_year, 0, 999);
+  int age_years = year - s_birth_year;
+  if (month < s_birth_month || (month == s_birth_month && day < s_birth_day)) {
+    age_years -= 1;
+  }
+age_years = clampi(age_years, 0, 999);
   int total_years = clampi(s_life_expectancy_year - s_birth_year, 1, 999);
   snprintf(s_life_bar_text, sizeof(s_life_bar_text), "%d/%d", age_years, total_years);
 
@@ -355,30 +369,33 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     }
   }
 
-  // ── bottom: three progress bars ─────────────────────────────────────────────
-  // Top-left: Day of Month or Day of Year (user's choice). Top-right: Month
-  // of Year (fixed). Bottom (full width): life remaining. Fractions are
-  // cached by recompute_bars() and only read here.
-  fill_bar(ctx, s_bar1_rect, s_bar1_frac, (GColor){.argb = s_bar1_argb}, empty);
-  fill_bar(ctx, s_bar2_rect, s_bar2_frac, (GColor){.argb = s_bar2_argb}, empty);
+// ── bottom: three progress bars ─────────────────────────────────────────────
+  // s_bar1_frac/text/color is always "Day" and s_bar2_frac/text/color is
+  // always "Month" — their colors and toggles keep the meaning their labels
+  // promise. s_bar_order only decides which physical slot (left vs right)
+  // each one lands in, so a settings change just swaps positions, not
+  // identities. Bottom (full width): life remaining, unaffected by order.
+  GRect day_rect   = (s_bar_order == BAR_ORDER_MONTH_FIRST) ? s_bar2_rect : s_bar1_rect;
+  GRect month_rect = (s_bar_order == BAR_ORDER_MONTH_FIRST) ? s_bar1_rect : s_bar2_rect;
+
+  fill_bar(ctx, day_rect, s_bar1_frac, (GColor){.argb = s_bar1_argb}, empty);
+  fill_bar(ctx, month_rect, s_bar2_frac, (GColor){.argb = s_bar2_argb}, empty);
   fill_bar(ctx, s_life_bar_rect, s_bar3_frac, (GColor){.argb = s_bar3_argb}, empty);
 
-  // Optional numbers inside bar1 and the life bar (bar2/Month never gets
-  // text — not part of what was asked for, but the toggle pattern below
-  // would extend to it easily if that's ever wanted).
-  if (s_show_bar1_text || s_show_life_bar_text) {
-    GColor ink = contrasting_color(s_bg_argb);
+  // Optional numbers inside bar1, bar2, and the life bar.
+  if (s_show_bar1_text || s_show_bar2_text || s_show_life_bar_text) {
+    GColor ink = contrasting_color(s_empty_argb);
     GColor halo = empty;
 
     if (s_show_bar1_text) {
-      int ty = s_bar1_rect.origin.y + (s_bar1_rect.size.h - s_bar_text_h) / 2 + BAR_TEXT_Y_FUDGE;
-      GRect box = GRect(s_bar1_rect.origin.x, ty, s_bar1_rect.size.w, s_bar_text_h + 4);
+      int ty = day_rect.origin.y + (day_rect.size.h - s_bar_text_h) / 2 + BAR_TEXT_Y_FUDGE;
+      GRect box = GRect(day_rect.origin.x, ty, day_rect.size.w, s_bar_text_h + 4);
       draw_outlined_text(ctx, s_bar1_text, s_bar_text_font, box, ink, halo);
     }
-    
+
     if (s_show_bar2_text) {
-      int ty = s_bar2_rect.origin.y + (s_bar2_rect.size.h - s_bar_text_h) / 2 + BAR_TEXT_Y_FUDGE;
-      GRect box = GRect(s_bar2_rect.origin.x, ty, s_bar2_rect.size.w, s_bar_text_h + 4);
+      int ty = month_rect.origin.y + (month_rect.size.h - s_bar_text_h) / 2 + BAR_TEXT_Y_FUDGE;
+      GRect box = GRect(month_rect.origin.x, ty, month_rect.size.w, s_bar_text_h + 4);
       draw_outlined_text(ctx, s_bar2_text, s_bar_text_font, box, ink, halo);
     }
 
@@ -468,6 +485,11 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
 
   t = dict_find(iter, MESSAGE_KEY_SHOW_LIFE_BAR_TEXT);
   if (t) s_show_life_bar_text = (uint8_t)(tuple_to_int(t) != 0);
+  
+  t = dict_find(iter, MESSAGE_KEY_BAR_ORDER);
+  if (t) {
+    s_bar_order = (tuple_to_int(t) == BAR_ORDER_MONTH_FIRST) ? BAR_ORDER_MONTH_FIRST : BAR_ORDER_DAY_FIRST;
+  }
 
   // The bar metrics only need recomputing when something that feeds them
   // changed — not on every settings save (e.g. a pure color tweak).
@@ -635,6 +657,7 @@ static void init(void) {
   s_show_bar1_text = persist_read_or(PERSIST_KEY_SHOW_BAR1_TEXT, 1);
   s_show_bar2_text = persist_read_or(PERSIST_KEY_SHOW_BAR2_TEXT, 1);
   s_show_life_bar_text = persist_read_or(PERSIST_KEY_SHOW_LIFE_BAR_TEXT, 1);
+  s_bar_order = persist_read_or(PERSIST_KEY_BAR_ORDER, BAR_ORDER_DAY_FIRST);
 
   recompute_bars();
 
@@ -670,6 +693,7 @@ static void deinit(void) {
   persist_write_int(PERSIST_KEY_SHOW_BAR1_TEXT, s_show_bar1_text);
   persist_write_int(PERSIST_KEY_SHOW_BAR2_TEXT, s_show_bar2_text);
   persist_write_int(PERSIST_KEY_SHOW_LIFE_BAR_TEXT, s_show_life_bar_text);
+  persist_write_int(PERSIST_KEY_BAR_ORDER, s_bar_order);
 
   tick_timer_service_unsubscribe();
   window_destroy(s_window);

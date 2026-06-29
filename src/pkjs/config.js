@@ -76,6 +76,28 @@ module.exports = [
     "type": "text",
     "defaultValue": "Two small bars sit above one long bar at the bottom of the face."
   },
+  
+  {
+    "type": "select",
+    "messageKey": "BAR_ORDER",
+    "label": "Top Row Order",
+    "defaultValue": "0",
+    "options": [
+      { "label": "Day, Month", "value": "0" },
+      { "label": "Month, Day", "value": "1" }
+    ]
+  },
+  {
+    "type": "select",
+    "messageKey": "TOP_BAR_STYLE",
+    "label": "Day Bar Shows",
+    "defaultValue": "0",
+    "options": [
+      { "label": "Day of Month", "value": "0" },
+      { "label": "Day of Year",  "value": "1" }
+    ]
+  },
+  
   {
     "type": "select",
     "messageKey": "TOP_BAR_STYLE",
