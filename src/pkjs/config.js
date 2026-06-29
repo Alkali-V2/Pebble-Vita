@@ -187,7 +187,21 @@ module.exports = [
     "label": "Show Age / Total Years on Bar",
     "defaultValue": true
   },
-
+  
+  {
+   "type": "toggle",
+   "messageKey": "SHOW_STEPS_TEXT",
+   "label": "Show Step Count on Life Bar",
+   "defaultValue": true
+  },
+  
+  {
+   "type": "toggle",
+   "messageKey": "HEALTH_COLOR_ENABLED",
+   "label": "Show Health Color Goals on Life Bar",
+   "defaultValue": true
+  },
+  
   {
     "type": "submit",
     "defaultValue": "Save Settings"

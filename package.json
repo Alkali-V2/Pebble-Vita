@@ -8,6 +8,9 @@
     ],
     "name": "vita",
     "pebble": {
+        "capabilities": [
+            "health"
+        ],
         "displayName": "VITA",
         "enableMultiJS": true,
         "messageKeys": [
@@ -30,7 +33,9 @@
             "SHOW_BAR1_TEXT",
             "SHOW_LIFE_BAR_TEXT",
             "SHOW_BAR2_TEXT",
-            "BAR_ORDER"
+            "BAR_ORDER",
+            "SHOW_STEPS_TEXT",
+            "HEALTH_COLOR_ENABLED"
         ],
         "projectType": "native",
         "resources": {
