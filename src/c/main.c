@@ -20,6 +20,8 @@ extern uint32_t MESSAGE_KEY_SHOW_BAR1_TEXT;
 extern uint32_t MESSAGE_KEY_SHOW_BAR2_TEXT;
 extern uint32_t MESSAGE_KEY_SHOW_LIFE_BAR_TEXT;
 extern uint32_t MESSAGE_KEY_BAR_ORDER;
+extern uint32_t MESSAGE_KEY_SHOW_STEPS_TEXT;
+extern uint32_t MESSAGE_KEY_HEALTH_COLOR_ENABLED;
 
 #define GRID_COLS 4
 #define GRID_ROWS 3
@@ -57,6 +59,8 @@ extern uint32_t MESSAGE_KEY_BAR_ORDER;
 #define PERSIST_KEY_SHOW_LIFE_BAR_TEXT 20
 #define PERSIST_KEY_SHOW_BAR2_TEXT 21
 #define PERSIST_KEY_BAR_ORDER 22
+#define PERSIST_KEY_SHOW_STEPS_TEXT 23
+#define PERSIST_KEY_HEALTH_COLOR_ENABLED 24
 
 #define DEFAULT_AM_TEXT_ARGB 0xFF   // white
 #define DEFAULT_AM_BORDER_ARGB 0xC0 // black
@@ -84,6 +88,39 @@ extern uint32_t MESSAGE_KEY_BAR_ORDER;
 #define DEFAULT_BIRTH_DAY 1
 #define DEFAULT_LIFE_EXPECTANCY_YEAR 2080
 
+#define DEFAULT_SHOW_STEPS_TEXT 1
+#define DEFAULT_HEALTH_COLOR_ENABLED 1
+
+// Life-bar fill color when health-coloring is on, as a function of today's
+// step count. Stops are deliberately bunched up at low step counts and
+// spread out at high ones, because that's the actual shape of the
+// steps-vs-mortality dose-response curve in the literature: risk reduction
+// is steep up to roughly 7,000-9,000 steps/day and flattens out after that.
+//   - ~3,000-4,000 steps/day: where a protective effect first becomes
+//     measurable (Banach et al. 2023, Eur J Prev Cardiol; Ding et al. 2024
+//     umbrella review)
+//   - ~7,000 steps/day: ~47% lower all-cause mortality vs. 2,000 steps/day,
+//     nearly matching the benefit at 10,000 (Univ. of Sydney 2025 review of
+//     57 studies)
+//   - ~8,800 steps/day: modeled "optimal dose" — max risk reduction for
+//     least additional effort (Paluch et al. 2023, JACC)
+//   - ~12,500+ steps/day: highest-benefit cohort category in most studies
+// Tune freely; these are reasonable defaults, not hard medical thresholds.
+typedef struct {
+  int steps;
+  uint8_t r, g, b;
+} StepColorStop;
+
+static const StepColorStop s_step_color_stops[] = {
+  {0,     210,  60,  55}, // sedentary - red
+  {3500,  210,  60,  55}, // still below the protective threshold for most cohorts
+  {5500,  225, 140,  45}, // climbing the steepest part of the curve - orange
+  {7000,  225, 200,  45}, // ~47% lower mortality in most cohorts - yellow
+  {8800,  150, 195,  60}, // near the modeled optimal-dose point - yellow-green
+  {12500,  55, 170,  80}, // highest-benefit category and above - green
+};
+#define STEP_COLOR_STOP_COUNT (sizeof(s_step_color_stops) / sizeof(s_step_color_stops[0]))
+
 // Candidate fonts for the in-block minute number, largest to smallest.
 // LECO fonts are digit-only and tabular (fixed digit width), which is exactly
 // what we want for measuring/fitting a two-digit "00".."59" string.
@@ -98,11 +135,13 @@ static const char * const s_minutes_font_keys[] = {
     FONT_KEY_GOTHIC_14_BOLD,
 };
 
-// 8 directions to nudge the outline draws — N, S, E, W, and diagonals for AM/PM Text
-static const GPoint s_outline_offsets[8] = {
-  {-1, -1}, {0, -1}, {1, -1},
-  {-1,  0},           {1,  0},
-  {-1,  1}, {0,  1}, {1,  1},
+// 4 directions to nudge the outline draws — N, S, E, W for AM/PM Text
+// (diagonals dropped: visually identical at these glyph sizes, nearly
+// halves the per-frame graphics_draw_text call count)
+static const GPoint s_outline_offsets[4] = {
+           {0, -1},
+  {-1, 0},          {1, 0},
+           {0,  1},
 };
 
 #define MINUTES_FONT_COUNT (sizeof(s_minutes_font_keys) / sizeof(s_minutes_font_keys[0]))
@@ -124,6 +163,11 @@ static const GPoint s_outline_offsets[8] = {
 #define BAR_TEXT_H_PADDING 4
 #define BAR_TEXT_Y_FUDGE -2
 
+// Extra breathing room between the step count and the life bar's right
+// edge, on top of the content-driven box sizing in window_load. Bump this
+// up if the step count still looks flush against the edge on your hardware.
+#define LIFE_STEPS_TEXT_X_INSET 2
+
 static Window *s_window;
 static Layer *s_canvas_layer;
 
@@ -135,18 +179,25 @@ static uint8_t s_is_pm;
 static uint8_t s_bg_argb, s_filled_argb, s_empty_argb;
 static uint8_t s_show_minutes_text;
 static uint8_t s_am_text_argb, s_am_border_argb, s_pm_text_argb, s_pm_border_argb;
-static uint8_t s_top_bar_style; // TOP_BAR_DAY_OF_MONTH or TOP_BAR_DAY_OF_YEAR
 static uint8_t s_bar1_argb, s_bar2_argb, s_bar3_argb;
 static int s_birth_year, s_birth_month, s_birth_day, s_life_expectancy_year;
 static uint8_t s_show_bar1_text, s_show_bar2_text, s_show_life_bar_text;
+static uint8_t s_show_steps_text, s_health_color_enabled;
 static uint8_t s_top_bar_style; // TOP_BAR_DAY_OF_MONTH or TOP_BAR_DAY_OF_YEAR
 static uint8_t s_bar_order;     // BAR_ORDER_DAY_FIRST or BAR_ORDER_MONTH_FIRST
+
+// Today's step count, refreshed every minute by update_steps(). -1 means
+// "no health data available" (permission not granted, Pebble Health not
+// enabled on the phone, or running on a platform without it, e.g. Aplite) —
+// callers should treat that as "don't show/use this" rather than as 0 steps.
+static int s_step_count = -1;
 
 // Text shown inside bar1 ("28" / "179") and the life bar ("40/80"),
 // refreshed by recompute_bars() alongside the fractions they label.
 static char s_bar1_text[8];
 static char s_bar2_text[12];
-static char s_life_bar_text[16];
+static char s_life_bar_text[16]; // just the age now, e.g. "40" (kept sized generously)
+static char s_steps_text[8]; // e.g. "842", "8.4k", "12k" - empty string if no health data
 
 // Bar progress cache — permille (0..1000), recomputed once per day (or
 // whenever settings change) rather than on every minute tick, since none of
@@ -158,6 +209,7 @@ static int s_bars_computed_for_mday = -1; // last tm_mday the cache was built fo
 static int s_radius, s_spacing;
 static int s_grid_x, s_grid_y;
 static GRect s_bar1_rect, s_bar2_rect, s_life_bar_rect;
+static GRect s_life_age_box, s_life_steps_box; // age text (left) / steps text (right) within s_life_bar_rect
 static GFont s_minutes_font;
 static int s_minutes_text_h;
 static GFont s_bar_text_font;
@@ -187,6 +239,78 @@ static GColor contrasting_color(uint8_t bg_argb) {
   int g = (bg_argb >> 2) & 0x3;
   int b = bg_argb & 0x3;
   return (r * 30 + g * 59 + b * 11 >= 150) ? GColorBlack : GColorWhite;
+}
+
+// Linearly interpolates between the s_step_color_stops bracketing `steps`,
+// using fixed-point (0..256) math since Pebble's C runtime has no FPU.
+// steps < 0 (health data unavailable) falls back to the static life-bar
+// color rather than guessing, since a red bar for "no data" reads as a
+// scolding rather than a neutral "unknown" state.
+static GColor step_health_color(int steps) {
+  if (steps < 0) {
+    return (GColor){ .argb = s_bar3_argb };
+  }
+
+  if (steps <= s_step_color_stops[0].steps) {
+    const StepColorStop *s = &s_step_color_stops[0];
+    return GColorFromRGB(s->r, s->g, s->b);
+  }
+
+  for (size_t i = 1; i < STEP_COLOR_STOP_COUNT; i++) {
+    const StepColorStop *a = &s_step_color_stops[i - 1];
+    const StepColorStop *b = &s_step_color_stops[i];
+    if (steps <= b->steps) {
+      int span = b->steps - a->steps;
+      int t = (span > 0) ? ((steps - a->steps) * 256) / span : 256; // 0..256
+      uint8_t r = a->r + ((int)(b->r - a->r) * t) / 256;
+      uint8_t g = a->g + ((int)(b->g - a->g) * t) / 256;
+      uint8_t bch = a->b + ((int)(b->b - a->b) * t) / 256;
+      return GColorFromRGB(r, g, bch);
+    }
+  }
+
+  const StepColorStop *last = &s_step_color_stops[STEP_COLOR_STOP_COUNT - 1];
+  return GColorFromRGB(last->r, last->g, last->b);
+}
+
+// Formats `steps` to fit a narrow bar slot: raw digits below 1,000, one
+// decimal ("8.4k") from 1,000-9,999, whole-k ("12k") at 10,000+. Writes an
+// empty string if steps < 0 so callers can skip drawing entirely.
+static void format_step_count(char *buf, size_t buf_size, int steps) {
+  if (steps < 0) {
+    buf[0] = '\0';
+  } else if (steps >= 10000) {
+    snprintf(buf, buf_size, "%dk", steps / 1000);
+  } else if (steps >= 1000) {
+    snprintf(buf, buf_size, "%d.%dk", steps / 1000, (steps % 1000) / 100);
+  } else {
+    snprintf(buf, buf_size, "%d", steps);
+  }
+}
+
+// Refreshes s_step_count from HealthService and reformats s_steps_text.
+// Cheap enough to call every minute tick (it's a stored-data lookup, not a
+// sensor poll) so the life bar's color/number track activity through the
+// day rather than only updating once at midnight like the other bars.
+// PBL_IF_HEALTH_ELSE compiles this out entirely on Aplite, which has no
+// Pebble Health support at all.
+static void update_steps(void) {
+#if defined(PBL_HEALTH)
+  time_t start = time_start_of_today();
+  time_t now = time(NULL);
+  HealthServiceAccessibilityMask mask =
+      health_service_metric_accessible(HealthMetricStepCount, start, now);
+
+  if (mask & HealthServiceAccessibilityMaskAvailable) {
+    s_step_count = (int)health_service_sum_today(HealthMetricStepCount);
+  } else {
+    s_step_count = -1; // Pebble Health not enabled on the phone, or no data yet today
+  }
+#else
+  s_step_count = -1; // platform has no HealthService (e.g. Aplite)
+#endif
+
+  format_step_count(s_steps_text, sizeof(s_steps_text), s_step_count);
 }
 
 // ── Calendar math (no floating point) ───────────────────────────────────────
@@ -229,8 +353,12 @@ static void recompute_bars(void) {
   int month = t->tm_mon + 1;
   int day = t->tm_mday;
 
+  // Cache values that were previously computed multiple times per call:
+  // day_of_year (was 2×), absolute_days for birth (was 2×), today (was 1×).
+  int doy = day_of_year(year, month, day);
+
   if (s_top_bar_style == TOP_BAR_DAY_OF_YEAR) {
-    s_bar1_frac = (day_of_year(year, month, day) - 1) * 1000 / days_in_year(year);
+    s_bar1_frac = (doy - 1) * 1000 / days_in_year(year);
   } else {
     s_bar1_frac = (day - 1) * 1000 / days_in_month(year, month);
   }
@@ -238,30 +366,33 @@ static void recompute_bars(void) {
   s_bar2_frac = month * 1000 / 12;
   snprintf(s_bar2_text, sizeof(s_bar2_text), "%d", month);
 
-  int age_days = absolute_days(year, month, day) -
-                 absolute_days(s_birth_year, s_birth_month, s_birth_day);
-  int life_days = absolute_days(s_life_expectancy_year, s_birth_month, s_birth_day) -
-                   absolute_days(s_birth_year, s_birth_month, s_birth_day);
+  int today_abs = absolute_days(year, month, day);
+  int birth_abs = absolute_days(s_birth_year, s_birth_month, s_birth_day);
+  int age_days = today_abs - birth_abs;
+  int life_days = absolute_days(s_life_expectancy_year, s_birth_month, s_birth_day)
+                  - birth_abs;
   if (life_days < 1) life_days = 1;
   s_bar3_frac = clamp_permille((age_days * 1000) / life_days);
 
   // Bar1's number mirrors whichever metric it's showing.
   if (s_top_bar_style == TOP_BAR_DAY_OF_YEAR) {
-    snprintf(s_bar1_text, sizeof(s_bar1_text), "%d", day_of_year(year, month, day));
+    snprintf(s_bar1_text, sizeof(s_bar1_text), "%d", doy);
   } else {
     snprintf(s_bar1_text, sizeof(s_bar1_text), "%d", day);
   }
 
-  // Life bar's number is a simple whole-years reading — current age over
-  // total expected lifespan — separate from the day-accurate fill fraction
-  // above. Clamped so a birth year typo can't print something nonsensical.
+  // Life bar's number is now just the current whole-years age, separate
+  // from the day-accurate fill fraction above. The total-expected-lifespan
+  // half ("/80") was dropped per request — the bar itself already shows
+  // that visually via how much of it is filled, so the number doesn't need
+  // to repeat it. Clamped so a birth year typo can't print something
+  // nonsensical.
   int age_years = year - s_birth_year;
   if (month < s_birth_month || (month == s_birth_month && day < s_birth_day)) {
     age_years -= 1;
   }
-age_years = clampi(age_years, 0, 999);
-  int total_years = clampi(s_life_expectancy_year - s_birth_year, 1, 999);
-  snprintf(s_life_bar_text, sizeof(s_life_bar_text), "%d/%d", age_years, total_years);
+  age_years = clampi(age_years, 0, 999);
+  snprintf(s_life_bar_text, sizeof(s_life_bar_text), "%d", age_years);
 
   s_bars_computed_for_mday = day;
 }
@@ -280,20 +411,20 @@ static void fill_bar(GContext *ctx, GRect bar, int frac_permille, GColor fill, G
   }
 }
 
-// Stamps `text` with an `outline` halo (the same 8-direction nudge trick used
-// for the AM/PM minute number) then the `fill` ink on top, so the digits stay
-// legible whether they land over a bar's filled or empty portion.
+// Stamps `text` with an `outline` halo (4-direction N/S/E/W nudge) then the
+// `fill` ink on top, so the digits stay legible whether they land over a
+// bar's filled or empty portion.
 static void draw_outlined_text(GContext *ctx, const char *text, GFont font, GRect box,
-                                GColor fill, GColor outline) {
+                                GColor fill, GColor outline, GTextAlignment alignment) {
   graphics_context_set_text_color(ctx, outline);
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < 4; i++) {
     GRect ob = box;
     ob.origin.x += s_outline_offsets[i].x;
     ob.origin.y += s_outline_offsets[i].y;
-    graphics_draw_text(ctx, text, font, ob, GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+    graphics_draw_text(ctx, text, font, ob, GTextOverflowModeFill, alignment, NULL);
   }
   graphics_context_set_text_color(ctx, fill);
-  graphics_draw_text(ctx, text, font, box, GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+  graphics_draw_text(ctx, text, font, box, GTextOverflowModeFill, alignment, NULL);
 }
 
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
@@ -351,7 +482,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
           GRect text_box = GRect(block.origin.x, ty, block.size.w, s_minutes_text_h + 4);
 
           graphics_context_set_text_color(ctx, outline_color);
-          for (int i = 0; i < 8; i++) {
+          for (int i = 0; i < 4; i++) {
             GRect ob = text_box;
             ob.origin.x += s_outline_offsets[i].x;
             ob.origin.y += s_outline_offsets[i].y;
@@ -380,29 +511,45 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
 
   fill_bar(ctx, day_rect, s_bar1_frac, (GColor){.argb = s_bar1_argb}, empty);
   fill_bar(ctx, month_rect, s_bar2_frac, (GColor){.argb = s_bar2_argb}, empty);
-  fill_bar(ctx, s_life_bar_rect, s_bar3_frac, (GColor){.argb = s_bar3_argb}, empty);
+
+  GColor life_fill = s_health_color_enabled ? step_health_color(s_step_count)
+                                             : (GColor){.argb = s_bar3_argb};
+  fill_bar(ctx, s_life_bar_rect, s_bar3_frac, life_fill, empty);
 
   // Optional numbers inside bar1, bar2, and the life bar.
-  if (s_show_bar1_text || s_show_bar2_text || s_show_life_bar_text) {
+  if (s_show_bar1_text || s_show_bar2_text || s_show_life_bar_text || s_show_steps_text) {
     GColor ink = contrasting_color(s_empty_argb);
     GColor halo = empty;
 
     if (s_show_bar1_text) {
       int ty = day_rect.origin.y + (day_rect.size.h - s_bar_text_h) / 2 + BAR_TEXT_Y_FUDGE;
       GRect box = GRect(day_rect.origin.x, ty, day_rect.size.w, s_bar_text_h + 4);
-      draw_outlined_text(ctx, s_bar1_text, s_bar_text_font, box, ink, halo);
+      draw_outlined_text(ctx, s_bar1_text, s_bar_text_font, box, ink, halo, GTextAlignmentCenter);
     }
 
     if (s_show_bar2_text) {
       int ty = month_rect.origin.y + (month_rect.size.h - s_bar_text_h) / 2 + BAR_TEXT_Y_FUDGE;
       GRect box = GRect(month_rect.origin.x, ty, month_rect.size.w, s_bar_text_h + 4);
-      draw_outlined_text(ctx, s_bar2_text, s_bar_text_font, box, ink, halo);
+      draw_outlined_text(ctx, s_bar2_text, s_bar_text_font, box, ink, halo, GTextAlignmentCenter);
     }
 
+    // Age sits at the left end of the life bar, steps at the right end —
+    // s_life_age_box and s_life_steps_box are sized to their content once
+    // in window_load. Steps only draws when health data is actually
+    // available (s_step_count >= 0); an empty s_steps_text from
+    // format_step_count() means there's nothing to draw, so this just quietly
+    // leaves the right end blank rather than printing "no data".
     if (s_show_life_bar_text) {
-      int ty = s_life_bar_rect.origin.y + (s_life_bar_rect.size.h - s_bar_text_h) / 2 + BAR_TEXT_Y_FUDGE;
-      GRect box = GRect(s_life_bar_rect.origin.x, ty, s_life_bar_rect.size.w, s_bar_text_h + 4);
-      draw_outlined_text(ctx, s_life_bar_text, s_bar_text_font, box, ink, halo);
+      int ty = s_life_age_box.origin.y + (s_life_age_box.size.h - s_bar_text_h) / 2 + BAR_TEXT_Y_FUDGE;
+      GRect box = GRect(s_life_age_box.origin.x, ty, s_life_age_box.size.w, s_bar_text_h + 4);
+      draw_outlined_text(ctx, s_life_bar_text, s_bar_text_font, box, ink, halo, GTextAlignmentLeft);
+    }
+
+    if (s_show_steps_text && s_step_count >= 0 && s_steps_text[0] != '\0') {
+      int ty = s_life_steps_box.origin.y + (s_life_steps_box.size.h - s_bar_text_h) / 2 + BAR_TEXT_Y_FUDGE;
+      GRect box = GRect(s_life_steps_box.origin.x, ty,
+                         s_life_steps_box.size.w - LIFE_STEPS_TEXT_X_INSET, s_bar_text_h + 4);
+      draw_outlined_text(ctx, s_steps_text, s_bar_text_font, box, ink, halo, GTextAlignmentRight);
     }
   }
 }
@@ -411,8 +558,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
 // numbers arrive in the smallest signed type that fits (1/2/4 bytes), so
 // reading value->int32 unconditionally can pull in adjacent bytes whenever
 // fewer were sent — this mainly bites small values like a birth month or
-// the bar-style index. Colors are unaffected (RGB24 values always need the
-// full 4 bytes) but we route everything through here for consistency.
+// the bar-style index.
 static int32_t tuple_to_int(const Tuple *t) {
   if (t->type == TUPLE_CSTRING) return atoi(t->value->cstring);
   switch (t->length) {
@@ -427,28 +573,28 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
   bool date_settings_changed = false;
 
   t = dict_find(iter, MESSAGE_KEY_BG_COLOR);
-  if (t) s_bg_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_bg_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_FILLED_COLOR);
-  if (t) s_filled_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_filled_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_EMPTY_COLOR);
-  if (t) s_empty_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_empty_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_SHOW_MINUTES_TEXT);
-  if (t) s_show_minutes_text = (uint8_t)t->value->int32;
+  if (t) s_show_minutes_text = (uint8_t)(tuple_to_int(t) != 0);
   
   t = dict_find(iter, MESSAGE_KEY_AM_TEXT_COLOR);
-  if (t) s_am_text_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_am_text_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_AM_BORDER_COLOR);
-  if (t) s_am_border_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_am_border_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_PM_TEXT_COLOR);
-  if (t) s_pm_text_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_pm_text_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_PM_BORDER_COLOR);
-  if (t) s_pm_border_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_pm_border_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_TOP_BAR_STYLE);
   if (t) {
@@ -457,13 +603,13 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
   }
 
   t = dict_find(iter, MESSAGE_KEY_BAR1_COLOR);
-  if (t) s_bar1_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_bar1_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_BAR2_COLOR);
-  if (t) s_bar2_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_bar2_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_BAR3_COLOR);
-  if (t) s_bar3_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_bar3_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_BIRTH_YEAR);
   if (t) { s_birth_year = clampi(tuple_to_int(t), 1900, 2150); date_settings_changed = true; }
@@ -485,6 +631,12 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
 
   t = dict_find(iter, MESSAGE_KEY_SHOW_LIFE_BAR_TEXT);
   if (t) s_show_life_bar_text = (uint8_t)(tuple_to_int(t) != 0);
+
+  t = dict_find(iter, MESSAGE_KEY_SHOW_STEPS_TEXT);
+  if (t) s_show_steps_text = (uint8_t)(tuple_to_int(t) != 0);
+
+  t = dict_find(iter, MESSAGE_KEY_HEALTH_COLOR_ENABLED);
+  if (t) s_health_color_enabled = (uint8_t)(tuple_to_int(t) != 0);
   
   t = dict_find(iter, MESSAGE_KEY_BAR_ORDER);
   if (t) {
@@ -510,6 +662,10 @@ static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   if (tick_time->tm_mday != s_bars_computed_for_mday) {
     recompute_bars();
   }
+
+  // Steps change throughout the day, unlike the date-based bars, so this
+  // refreshes every minute rather than being folded into the cache above.
+  update_steps();
 
   layer_mark_dirty(s_canvas_layer);
 }
@@ -550,24 +706,31 @@ static const char * const s_bar_font_keys[] = {
 };
 #define BAR_FONT_COUNT (sizeof(s_bar_font_keys) / sizeof(s_bar_font_keys[0]))
 
-// Picks the largest candidate that fits both bar1's number ("999", checked
-// against bar1's narrower width) and the life bar's number ("999/999",
-// checked against the life bar's full width) within `max_h`. One shared font
-// keeps the two bars' digits visually consistent.
-static void pick_bar_font(int max_h, int bar1_max_w, int life_max_w) {
+// Picks the largest candidate that fits bar1's number ("999", checked against
+// bar1's width) and, on the life bar, fits the age text ("999") and steps
+// text ("99.9k") *combined* within life_combined_max_w. Checking them
+// combined rather than each against a pre-split half-width means the boxes
+// can be sized to their actual content afterward (see window_load) instead
+// of guessing a fixed left/right split — which is what was pushing the step
+// count past the bar's right edge before.
+static void pick_bar_font(int max_h, int bar1_max_w, int life_combined_max_w) {
   s_bar_text_font = fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD); // safe fallback
   s_bar_text_h = 14;
 
   for (size_t i = 0; i < BAR_FONT_COUNT; i++) {
     GFont candidate = fonts_get_system_font(s_bar_font_keys[i]);
-    GSize sz1 = graphics_text_layout_get_content_size(
+    // "999" covers both bar1's number and the life bar's age number - both
+    // are clamped to 0-999 elsewhere, so one measurement covers both.
+    GSize sz_digits = graphics_text_layout_get_content_size(
         "999", candidate, GRect(0, 0, 200, 100), GTextOverflowModeFill, GTextAlignmentLeft);
-    GSize sz2 = graphics_text_layout_get_content_size(
-        "999/999", candidate, GRect(0, 0, 200, 100), GTextOverflowModeFill, GTextAlignmentLeft);
+    GSize sz_steps = graphics_text_layout_get_content_size(
+        "99.9k", candidate, GRect(0, 0, 200, 100), GTextOverflowModeFill, GTextAlignmentLeft);
 
-    if (sz1.h <= max_h && sz2.h <= max_h && sz1.w <= bar1_max_w && sz2.w <= life_max_w) {
+    if (sz_digits.h <= max_h && sz_steps.h <= max_h &&
+        sz_digits.w <= bar1_max_w &&
+        (sz_digits.w + sz_steps.w) <= life_combined_max_w) {
       s_bar_text_font = candidate;
-      s_bar_text_h = (sz1.h > sz2.h) ? sz1.h : sz2.h;
+      s_bar_text_h = (sz_digits.h > sz_steps.h) ? sz_digits.h : sz_steps.h;
       break;
     }
   }
@@ -612,10 +775,25 @@ static void window_load(Window *window) {
   // crossing its rounded border.
   pick_minutes_font(s_radius * 2);
 
-  // Largest bar-number font that fits inside the (now taller) bars.
+  // Largest bar-number font that fits bar1's number and the life bar's
+  // age + steps text combined (see pick_bar_font for why "combined" rather
+  // than a pre-split width).
+  int life_text_gap = bar_sub_gap;
   pick_bar_font(bar_h - 2 * BAR_TEXT_V_PADDING,
                 s_bar1_rect.size.w - 2 * BAR_TEXT_H_PADDING,
-                s_life_bar_rect.size.w - 2 * BAR_TEXT_H_PADDING);
+                grid_w - life_text_gap - 2 * BAR_TEXT_H_PADDING);
+
+  // Now that the font is fixed, size the age box to what "999" actually
+  // needs at that font (plus a little breathing room) and hand everything
+  // else to the steps box on the right. Sizing off real content instead of
+  // a guessed ratio is what keeps the step count from running off the
+  // bar's right edge regardless of which font got picked.
+  GSize age_sz = graphics_text_layout_get_content_size(
+      "999", s_bar_text_font, GRect(0, 0, 200, 100), GTextOverflowModeFill, GTextAlignmentLeft);
+  int life_age_w = age_sz.w + 2 * BAR_TEXT_H_PADDING;
+  s_life_age_box = GRect(grid_left, life_bar_y, life_age_w, bar_h);
+  s_life_steps_box = GRect(grid_left + life_age_w + life_text_gap, life_bar_y,
+                            grid_w - life_age_w - life_text_gap, bar_h);
 
   s_canvas_layer = layer_create(bounds);
   layer_set_update_proc(s_canvas_layer, canvas_update_proc);
@@ -626,6 +804,8 @@ static void window_load(Window *window) {
   s_hours = t->tm_hour % 12;
   s_minutes = t->tm_min;
   s_is_pm = (t->tm_hour >= 12) ? 1 : 0;
+
+  update_steps();
 }
 
 static void window_unload(Window *window) {
@@ -658,6 +838,8 @@ static void init(void) {
   s_show_bar2_text = persist_read_or(PERSIST_KEY_SHOW_BAR2_TEXT, 1);
   s_show_life_bar_text = persist_read_or(PERSIST_KEY_SHOW_LIFE_BAR_TEXT, 1);
   s_bar_order = persist_read_or(PERSIST_KEY_BAR_ORDER, BAR_ORDER_DAY_FIRST);
+  s_show_steps_text = persist_read_or(PERSIST_KEY_SHOW_STEPS_TEXT, DEFAULT_SHOW_STEPS_TEXT);
+  s_health_color_enabled = persist_read_or(PERSIST_KEY_HEALTH_COLOR_ENABLED, DEFAULT_HEALTH_COLOR_ENABLED);
 
   recompute_bars();
 
@@ -670,7 +852,7 @@ static void init(void) {
 
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
   app_message_register_inbox_received(inbox_received_handler);
-  app_message_open(512, 64);
+  app_message_open(256, 64);
 }
 
 static void deinit(void) {
@@ -694,6 +876,8 @@ static void deinit(void) {
   persist_write_int(PERSIST_KEY_SHOW_BAR2_TEXT, s_show_bar2_text);
   persist_write_int(PERSIST_KEY_SHOW_LIFE_BAR_TEXT, s_show_life_bar_text);
   persist_write_int(PERSIST_KEY_BAR_ORDER, s_bar_order);
+  persist_write_int(PERSIST_KEY_SHOW_STEPS_TEXT, s_show_steps_text);
+  persist_write_int(PERSIST_KEY_HEALTH_COLOR_ENABLED, s_health_color_enabled);
 
   tick_timer_service_unsubscribe();
   window_destroy(s_window);

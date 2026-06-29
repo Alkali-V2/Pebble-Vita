@@ -87,16 +87,6 @@ module.exports = [
       { "label": "Month, Day", "value": "1" }
     ]
   },
-  {
-    "type": "select",
-    "messageKey": "TOP_BAR_STYLE",
-    "label": "Day Bar Shows",
-    "defaultValue": "0",
-    "options": [
-      { "label": "Day of Month", "value": "0" },
-      { "label": "Day of Year",  "value": "1" }
-    ]
-  },
   
   {
     "type": "select",
@@ -111,14 +101,14 @@ module.exports = [
   {
     "type": "toggle",
     "messageKey": "SHOW_BAR1_TEXT",
-    "label": "Show Day Number on Bar",
+    "label": "Show Number on Top-Left Bar",
     "defaultValue": true
   },
   
   {
   "type": "toggle",
   "messageKey": "SHOW_BAR2_TEXT",
-  "label": "Show Month Number on Bar",
+  "label": "Show Number on Top-Right Bar",
   "defaultValue": true
   },
   
@@ -126,21 +116,21 @@ module.exports = [
     "type": "color",
     "allowGray": true,
     "messageKey": "BAR1_COLOR",
-    "label": "Day Bar Color (top-left)",
+    "label": "Top-Left Bar Color",
     "defaultValue": "FFAA00"
   },
   {
     "type": "color",
     "allowGray": true,
     "messageKey": "BAR2_COLOR",
-    "label": "Month Bar Color (top-right)",
+    "label": "Top-Right Bar Color",
     "defaultValue": "0000FF"
   },
   {
     "type": "color",
     "allowGray": true,
     "messageKey": "BAR3_COLOR",
-    "label": "Life Bar Color (bottom)",
+    "label": "Bar Color (bottom)",
     "defaultValue": "555555"
   },
 
@@ -187,7 +177,21 @@ module.exports = [
     "label": "Show Age / Total Years on Bar",
     "defaultValue": true
   },
-
+  
+  {
+   "type": "toggle",
+   "messageKey": "SHOW_STEPS_TEXT",
+   "label": "Show Step Count on Life Bar",
+   "defaultValue": true
+  },
+  
+  {
+   "type": "toggle",
+   "messageKey": "HEALTH_COLOR_ENABLED",
+   "label": "Show Health Color Goals on Life Bar",
+   "defaultValue": true
+  },
+  
   {
     "type": "submit",
     "defaultValue": "Save Settings"
