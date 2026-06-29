@@ -1,4 +1,4 @@
-# VITA
+# Pebble Vita
 
 A minimal dot-matrix Pebble watchface with health-aware life progress bars. Inspired by the block layout of Pnooka and the status bars of Tens.
 
