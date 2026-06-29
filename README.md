@@ -1,7 +1,5 @@
 # Pebble Vita
 
-A minimal dot-matrix Pebble watchface with health-aware life progress bars. Inspired by the block layout of Pnooka and the status bars of Tens.
-
 ## How to Read It
 
 **Hour Grid** — A 4×3 grid of rounded blocks represents the 12-hour cycle. Blocks fill column by column, top to bottom: at 3:00 the first column is fully lit, at 6:00 the first two columns are, and so on. The next upcoming block progressively fills from top to bottom as minutes tick by.
@@ -125,6 +123,10 @@ Find your phone's IP in the Pebble app under Settings → Developer Mode.
 - Text outlines use a 4-direction (N/S/E/W) offset halo for legibility over both filled and empty bar portions.
 - Colors arrive from Clay as 24-bit RGB and are converted to Pebble's 6-bit ARGB format via `rgb24_to_argb8()`. All incoming values are width-normalized through `tuple_to_int()` to handle PebbleKit JS's variable-width integer packing.
 - Inbox buffer is 256 bytes (sufficient for 22 message keys); outbox is minimal since the watch never sends messages.
+
+Disclaimer
+
+The health-related features of this watchface, including the step-count display and color gradient, are provided for informational and motivational purposes only. They are not intended to constitute medical advice, diagnosis, or treatment, and should not be relied upon as a substitute for professional medical judgment. The step-count thresholds and color stops referenced in this project are derived from published epidemiological research but are simplified generalizations — they do not account for individual health conditions, age, mobility limitations, or other personal factors. No representation or warranty, express or implied, is made regarding the accuracy, completeness, or applicability of any health-related information displayed by this watchface. The author is not a licensed medical professional. Always consult a qualified healthcare provider before making decisions about your physical activity, health, or wellness. Use of this watchface is entirely at your own risk.
 
 ## Author
 
