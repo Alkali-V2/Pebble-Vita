@@ -135,11 +135,13 @@ static const char * const s_minutes_font_keys[] = {
     FONT_KEY_GOTHIC_14_BOLD,
 };
 
-// 8 directions to nudge the outline draws — N, S, E, W, and diagonals for AM/PM Text
-static const GPoint s_outline_offsets[8] = {
-  {-1, -1}, {0, -1}, {1, -1},
-  {-1,  0},           {1,  0},
-  {-1,  1}, {0,  1}, {1,  1},
+// 4 directions to nudge the outline draws — N, S, E, W for AM/PM Text
+// (diagonals dropped: visually identical at these glyph sizes, nearly
+// halves the per-frame graphics_draw_text call count)
+static const GPoint s_outline_offsets[4] = {
+           {0, -1},
+  {-1, 0},          {1, 0},
+           {0,  1},
 };
 
 #define MINUTES_FONT_COUNT (sizeof(s_minutes_font_keys) / sizeof(s_minutes_font_keys[0]))
@@ -177,7 +179,6 @@ static uint8_t s_is_pm;
 static uint8_t s_bg_argb, s_filled_argb, s_empty_argb;
 static uint8_t s_show_minutes_text;
 static uint8_t s_am_text_argb, s_am_border_argb, s_pm_text_argb, s_pm_border_argb;
-static uint8_t s_top_bar_style; // TOP_BAR_DAY_OF_MONTH or TOP_BAR_DAY_OF_YEAR
 static uint8_t s_bar1_argb, s_bar2_argb, s_bar3_argb;
 static int s_birth_year, s_birth_month, s_birth_day, s_life_expectancy_year;
 static uint8_t s_show_bar1_text, s_show_bar2_text, s_show_life_bar_text;
@@ -352,8 +353,12 @@ static void recompute_bars(void) {
   int month = t->tm_mon + 1;
   int day = t->tm_mday;
 
+  // Cache values that were previously computed multiple times per call:
+  // day_of_year (was 2×), absolute_days for birth (was 2×), today (was 1×).
+  int doy = day_of_year(year, month, day);
+
   if (s_top_bar_style == TOP_BAR_DAY_OF_YEAR) {
-    s_bar1_frac = (day_of_year(year, month, day) - 1) * 1000 / days_in_year(year);
+    s_bar1_frac = (doy - 1) * 1000 / days_in_year(year);
   } else {
     s_bar1_frac = (day - 1) * 1000 / days_in_month(year, month);
   }
@@ -361,16 +366,17 @@ static void recompute_bars(void) {
   s_bar2_frac = month * 1000 / 12;
   snprintf(s_bar2_text, sizeof(s_bar2_text), "%d", month);
 
-  int age_days = absolute_days(year, month, day) -
-                 absolute_days(s_birth_year, s_birth_month, s_birth_day);
-  int life_days = absolute_days(s_life_expectancy_year, s_birth_month, s_birth_day) -
-                   absolute_days(s_birth_year, s_birth_month, s_birth_day);
+  int today_abs = absolute_days(year, month, day);
+  int birth_abs = absolute_days(s_birth_year, s_birth_month, s_birth_day);
+  int age_days = today_abs - birth_abs;
+  int life_days = absolute_days(s_life_expectancy_year, s_birth_month, s_birth_day)
+                  - birth_abs;
   if (life_days < 1) life_days = 1;
   s_bar3_frac = clamp_permille((age_days * 1000) / life_days);
 
   // Bar1's number mirrors whichever metric it's showing.
   if (s_top_bar_style == TOP_BAR_DAY_OF_YEAR) {
-    snprintf(s_bar1_text, sizeof(s_bar1_text), "%d", day_of_year(year, month, day));
+    snprintf(s_bar1_text, sizeof(s_bar1_text), "%d", doy);
   } else {
     snprintf(s_bar1_text, sizeof(s_bar1_text), "%d", day);
   }
@@ -385,7 +391,7 @@ static void recompute_bars(void) {
   if (month < s_birth_month || (month == s_birth_month && day < s_birth_day)) {
     age_years -= 1;
   }
-age_years = clampi(age_years, 0, 999);
+  age_years = clampi(age_years, 0, 999);
   snprintf(s_life_bar_text, sizeof(s_life_bar_text), "%d", age_years);
 
   s_bars_computed_for_mday = day;
@@ -405,13 +411,13 @@ static void fill_bar(GContext *ctx, GRect bar, int frac_permille, GColor fill, G
   }
 }
 
-// Stamps `text` with an `outline` halo (the same 8-direction nudge trick used
-// for the AM/PM minute number) then the `fill` ink on top, so the digits stay
-// legible whether they land over a bar's filled or empty portion.
+// Stamps `text` with an `outline` halo (4-direction N/S/E/W nudge) then the
+// `fill` ink on top, so the digits stay legible whether they land over a
+// bar's filled or empty portion.
 static void draw_outlined_text(GContext *ctx, const char *text, GFont font, GRect box,
                                 GColor fill, GColor outline, GTextAlignment alignment) {
   graphics_context_set_text_color(ctx, outline);
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < 4; i++) {
     GRect ob = box;
     ob.origin.x += s_outline_offsets[i].x;
     ob.origin.y += s_outline_offsets[i].y;
@@ -476,7 +482,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
           GRect text_box = GRect(block.origin.x, ty, block.size.w, s_minutes_text_h + 4);
 
           graphics_context_set_text_color(ctx, outline_color);
-          for (int i = 0; i < 8; i++) {
+          for (int i = 0; i < 4; i++) {
             GRect ob = text_box;
             ob.origin.x += s_outline_offsets[i].x;
             ob.origin.y += s_outline_offsets[i].y;
@@ -552,8 +558,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
 // numbers arrive in the smallest signed type that fits (1/2/4 bytes), so
 // reading value->int32 unconditionally can pull in adjacent bytes whenever
 // fewer were sent — this mainly bites small values like a birth month or
-// the bar-style index. Colors are unaffected (RGB24 values always need the
-// full 4 bytes) but we route everything through here for consistency.
+// the bar-style index.
 static int32_t tuple_to_int(const Tuple *t) {
   if (t->type == TUPLE_CSTRING) return atoi(t->value->cstring);
   switch (t->length) {
@@ -568,28 +573,28 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
   bool date_settings_changed = false;
 
   t = dict_find(iter, MESSAGE_KEY_BG_COLOR);
-  if (t) s_bg_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_bg_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_FILLED_COLOR);
-  if (t) s_filled_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_filled_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_EMPTY_COLOR);
-  if (t) s_empty_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_empty_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_SHOW_MINUTES_TEXT);
-  if (t) s_show_minutes_text = (uint8_t)t->value->int32;
+  if (t) s_show_minutes_text = (uint8_t)(tuple_to_int(t) != 0);
   
   t = dict_find(iter, MESSAGE_KEY_AM_TEXT_COLOR);
-  if (t) s_am_text_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_am_text_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_AM_BORDER_COLOR);
-  if (t) s_am_border_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_am_border_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_PM_TEXT_COLOR);
-  if (t) s_pm_text_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_pm_text_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_PM_BORDER_COLOR);
-  if (t) s_pm_border_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_pm_border_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_TOP_BAR_STYLE);
   if (t) {
@@ -598,13 +603,13 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
   }
 
   t = dict_find(iter, MESSAGE_KEY_BAR1_COLOR);
-  if (t) s_bar1_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_bar1_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_BAR2_COLOR);
-  if (t) s_bar2_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_bar2_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_BAR3_COLOR);
-  if (t) s_bar3_argb = rgb24_to_argb8(t->value->int32);
+  if (t) s_bar3_argb = rgb24_to_argb8(tuple_to_int(t));
 
   t = dict_find(iter, MESSAGE_KEY_BIRTH_YEAR);
   if (t) { s_birth_year = clampi(tuple_to_int(t), 1900, 2150); date_settings_changed = true; }
@@ -847,7 +852,7 @@ static void init(void) {
 
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
   app_message_register_inbox_received(inbox_received_handler);
-  app_message_open(512, 64);
+  app_message_open(256, 64);
 }
 
 static void deinit(void) {
